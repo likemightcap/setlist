@@ -365,8 +365,9 @@ function updateInstallButtonVisibility() {
     return;
   }
 
-  const canShow = !isRunningStandalone() && !!appState.installPromptEvent;
+  const canShow = !isRunningStandalone() && window.isSecureContext;
   els.installAppBtn.hidden = !canShow;
+  els.installAppBtn.textContent = appState.installPromptEvent ? "Download App" : "Install App";
 }
 
 function initInstallPrompt() {
@@ -387,6 +388,10 @@ function initInstallPrompt() {
 async function onInstallAppClick() {
   const promptEvent = appState.installPromptEvent;
   if (!promptEvent) {
+    window.alert(
+      "Chrome can suppress the native install prompt even when the app is installable.\n\n"
+      + "To install now: Chrome menu (3 dots) -> Install app (or Add to Home screen)."
+    );
     return;
   }
 
@@ -3090,7 +3095,12 @@ function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
   }
-  navigator.serviceWorker.register("./service-worker.js").catch(() => {
+
+  if (!window.isSecureContext) {
+    return;
+  }
+
+  navigator.serviceWorker.register("./service-worker.js", { scope: "./" }).catch(() => {
     // Silent fallback for file:// mode where service workers are unsupported.
   });
 }

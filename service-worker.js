@@ -1,10 +1,13 @@
-const CACHE_NAME = "setlist-builder-v4";
-const CORE_ASSETS = [
+const CACHE_NAME = "setlist-builder-v5";
+const SHELL_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.webmanifest",
+  "./manifest.webmanifest"
+];
+
+const OPTIONAL_ASSETS = [
   "./icon.svg",
   "./assets/cont-play.png",
   "./assets/delete-icon.png",
@@ -20,9 +23,20 @@ const CORE_ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE_ASSETS))
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.addAll(SHELL_ASSETS);
+
+    // Optional assets should never block service worker installability.
+    await Promise.allSettled(
+      OPTIONAL_ASSETS.map(async (asset) => {
+        const response = await fetch(asset, { cache: "no-cache" });
+        if (response.ok) {
+          await cache.put(asset, response.clone());
+        }
+      })
+    );
+  })());
   self.skipWaiting();
 });
 
@@ -40,16 +54,34 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) {
-        return cached;
+  const requestUrl = new URL(event.request.url);
+  const isSameOrigin = requestUrl.origin === self.location.origin;
+
+  event.respondWith((async () => {
+    const cached = await caches.match(event.request);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      const response = await fetch(event.request);
+      if (isSameOrigin && response && response.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(event.request, response.clone());
       }
-      return fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return response;
-      }).catch(() => caches.match("./index.html"));
-    })
-  );
+      return response;
+    } catch {
+      if (event.request.mode === "navigate") {
+        const fallback = await caches.match("./index.html");
+        if (fallback) {
+          return fallback;
+        }
+      }
+
+      return new Response("Offline", {
+        status: 503,
+        statusText: "Offline"
+      });
+    }
+  })());
 });
