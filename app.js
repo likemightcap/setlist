@@ -38,6 +38,7 @@ const appState = {
   confirmAction: null,
   renderStatusByTrackId: {},
   renderQueueRunning: false,
+  installPromptEvent: null,
   renderProgress: {
     active: false,
     total: 0,
@@ -96,6 +97,7 @@ const appState = {
 
 const els = {
   setNameLabel: document.getElementById("setNameLabel"),
+  installAppBtn: document.getElementById("installAppBtn"),
   renameSetBtn: document.getElementById("renameSetBtn"),
   trackList: document.getElementById("trackList"),
   renderQueueBanner: document.getElementById("renderQueueBanner"),
@@ -161,6 +163,7 @@ init();
 function init() {
   loadSavedSets();
   wireEvents();
+  initInstallPrompt();
   wireWakeLockLifecycle();
   initDiagnosticsToggle();
   render();
@@ -262,6 +265,7 @@ function wireEvents() {
   };
 
   bind(els.renameSetBtn, "click", onRenameSet);
+  bind(els.installAppBtn, "click", onInstallAppClick);
   bind(els.addTrackBtn, "click", () => openTrackModal("add"));
   bind(els.newSetBtn, "click", onNewSet);
   bind(els.saveSetBtn, "click", onSaveSet);
@@ -350,6 +354,51 @@ function wireEvents() {
   });
 
   syncCountInControls();
+}
+
+function isRunningStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function updateInstallButtonVisibility() {
+  if (!els.installAppBtn) {
+    return;
+  }
+
+  const canShow = !isRunningStandalone() && !!appState.installPromptEvent;
+  els.installAppBtn.hidden = !canShow;
+}
+
+function initInstallPrompt() {
+  updateInstallButtonVisibility();
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    appState.installPromptEvent = event;
+    updateInstallButtonVisibility();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    appState.installPromptEvent = null;
+    updateInstallButtonVisibility();
+  });
+}
+
+async function onInstallAppClick() {
+  const promptEvent = appState.installPromptEvent;
+  if (!promptEvent) {
+    return;
+  }
+
+  try {
+    await promptEvent.prompt();
+    await promptEvent.userChoice;
+  } catch {
+    // Ignore failed prompt attempts.
+  }
+
+  appState.installPromptEvent = null;
+  updateInstallButtonVisibility();
 }
 
 function initDiagnosticsToggle() {

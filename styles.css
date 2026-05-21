@@ -111,6 +111,38 @@ select:focus-visible {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 2.5vh;
+  gap: 0.8rem;
+}
+
+.set-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.install-app-btn {
+  min-height: 52px;
+  border-radius: 999px;
+  padding: 0.4rem 0.95rem;
+  background: linear-gradient(155deg, #3b6dc0, #2b5394);
+  border: 1px solid rgba(196, 215, 246, 0.38);
+  color: #f4f8ff;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  box-shadow: var(--shadow-sm);
+}
+
+.install-app-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.install-app-btn:active {
+  transform: translateY(1px);
+}
+
+.install-app-btn[hidden] {
+  display: none;
 }
 
 .set-header h1 {
