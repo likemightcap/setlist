@@ -58,6 +58,10 @@ const appState = {
     tapResetTimer: null,
     events: []
   },
+  wakeLock: {
+    sentinel: null,
+    requesting: false
+  },
   dragReorder: {
     active: false,
     pointerId: null,
@@ -157,11 +161,85 @@ init();
 function init() {
   loadSavedSets();
   wireEvents();
+  wireWakeLockLifecycle();
   initDiagnosticsToggle();
   render();
   requestPersistentStorage();
+  requestScreenWakeLock();
   queueEnsureCurrentSetRendered({ forceAll: false });
   registerServiceWorker();
+}
+
+function canUseWakeLock() {
+  return !!navigator.wakeLock && typeof navigator.wakeLock.request === "function";
+}
+
+async function requestScreenWakeLock() {
+  if (!canUseWakeLock() || document.hidden) {
+    return;
+  }
+
+  if (appState.wakeLock.sentinel || appState.wakeLock.requesting) {
+    return;
+  }
+
+  appState.wakeLock.requesting = true;
+  try {
+    const sentinel = await navigator.wakeLock.request("screen");
+    appState.wakeLock.sentinel = sentinel;
+    sentinel.addEventListener("release", () => {
+      if (appState.wakeLock.sentinel === sentinel) {
+        appState.wakeLock.sentinel = null;
+      }
+      if (!document.hidden) {
+        requestScreenWakeLock();
+      }
+    });
+  } catch {
+    // Best-effort only; unsupported or denied environments keep default behavior.
+  } finally {
+    appState.wakeLock.requesting = false;
+  }
+}
+
+async function releaseScreenWakeLock() {
+  const sentinel = appState.wakeLock.sentinel;
+  appState.wakeLock.sentinel = null;
+  if (!sentinel) {
+    return;
+  }
+
+  try {
+    await sentinel.release();
+  } catch {
+    // Ignore release failures.
+  }
+}
+
+function wireWakeLockLifecycle() {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      releaseScreenWakeLock();
+      return;
+    }
+    requestScreenWakeLock();
+  });
+
+  window.addEventListener("focus", () => {
+    requestScreenWakeLock();
+  });
+
+  window.addEventListener("pagehide", () => {
+    releaseScreenWakeLock();
+  });
+
+  document.addEventListener("pointerdown", () => {
+    requestScreenWakeLock();
+  });
+
+  document.addEventListener("keydown", () => {
+    requestScreenWakeLock();
+  });
 }
 
 async function requestPersistentStorage() {
