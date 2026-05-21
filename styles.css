@@ -799,20 +799,20 @@ fieldset {
 .count-inline-row {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: 1fr minmax(180px, 240px);
+  grid-template-columns: 1fr minmax(120px, 170px);
   align-items: end;
 }
 
 .click-settings-row {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: end;
   margin-top: 0.7rem;
 }
 
 .strong-beat-row {
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .click-checkbox-cell {
@@ -834,7 +834,7 @@ fieldset {
 .split-grid {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .sections-panel {
@@ -842,6 +842,7 @@ fieldset {
   background: linear-gradient(180deg, #202737, #1b2231);
   border-radius: var(--radius-sm);
   padding: 0.8rem;
+  overflow-x: auto;
 }
 
 .sections-head {
@@ -853,10 +854,10 @@ fieldset {
 
 .section-grid-head {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) 96px 120px 86px minmax(160px, 1fr) 52px;
+  grid-template-columns: minmax(120px, 1.25fr) 78px 94px 70px minmax(110px, 1fr) 44px;
   gap: 0.5rem;
   color: #aeb5c6;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   letter-spacing: 0.03em;
   text-transform: uppercase;
   margin-bottom: 0.35rem;
@@ -875,7 +876,7 @@ fieldset {
 
 .section-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) 96px 120px 86px minmax(160px, 1fr) 52px;
+  grid-template-columns: minmax(120px, 1.25fr) 78px 94px 70px minmax(110px, 1fr) 44px;
   gap: 0.5rem;
   margin-top: 0.5rem;
 }
@@ -883,7 +884,8 @@ fieldset {
 .section-row input,
 .section-row select {
   margin-top: 0;
-  min-height: 52px;
+  min-height: 46px;
+  padding: 0.42rem 0.55rem;
 }
 
 .remove-section {
@@ -891,7 +893,15 @@ fieldset {
   background: linear-gradient(155deg, #7f3c4f, #5f2f3d);
   border: 1px solid rgba(238, 170, 183, 0.32);
   color: white;
-  min-height: 52px;
+  min-height: 46px;
+}
+
+.built-only input[type="number"],
+.built-only input[type="file"],
+.master-only input[type="number"],
+.master-only input[type="file"] {
+  min-height: 48px;
+  padding: 0.42rem 0.62rem;
 }
 
 .form-actions {
@@ -1132,23 +1142,81 @@ fieldset {
   }
 
   .count-inline-row {
+    grid-template-columns: minmax(0, 1fr) minmax(115px, 155px);
+    gap: 0.55rem;
+  }
+
+  .click-settings-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .strong-beat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .split-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .section-grid-head,
+  .section-row {
+    grid-template-columns: minmax(108px, 1.2fr) 72px 88px 64px minmax(98px, 1fr) 42px;
+    gap: 0.42rem;
+  }
+
+  .section-row {
+    margin-top: 0.42rem;
+  }
+
+  .section-row input,
+  .section-row select,
+  .remove-section,
+  .built-only input[type="number"],
+  .built-only input[type="file"],
+  .master-only input[type="number"],
+  .master-only input[type="file"] {
+    min-height: 42px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.9rem;
+  }
+
+  .section-grid-head {
+    display: grid;
+  }
+}
+
+@media (max-width: 700px) {
+  .click-settings-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .count-in-sound-row {
     grid-template-columns: 1fr;
   }
 
+  .strong-beat-row,
+  .split-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-grid-head,
+  .section-row {
+    grid-template-columns: minmax(100px, 1.25fr) 68px 80px 60px minmax(92px, 1fr) 40px;
+  }
+}
+
+@media (max-width: 560px) {
+  .count-inline-row,
   .click-settings-row,
-  .strong-beat-row {
+  .section-row {
     grid-template-columns: 1fr;
   }
 
   .section-grid-head {
     display: none;
-  }
-
-  .section-row {
-    grid-template-columns: 1fr;
-    background: #171b26;
-    border-radius: var(--radius-sm);
-    padding: 0.6rem;
   }
 }
 
