@@ -1,0 +1,17 @@
+{
+  "name": "Setlist Builder",
+  "short_name": "Setlist",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#17181d",
+  "theme_color": "#17181d",
+  "orientation": "landscape-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
