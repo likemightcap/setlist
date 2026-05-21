@@ -1075,8 +1075,9 @@ fieldset {
   }
 
   .transport-bar {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 84px 84px;
     bottom: calc(2.2vh + max(2.2vh, env(safe-area-inset-bottom)) + 102px);
+    gap: 0.45rem;
   }
 
   .render-queue-banner {
