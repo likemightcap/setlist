@@ -1,4 +1,4 @@
-const CACHE_NAME = "setlist-builder-v3";
+const CACHE_NAME = "setlist-builder-v4";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -6,8 +6,17 @@ const CORE_ASSETS = [
   "./app.js",
   "./manifest.webmanifest",
   "./icon.svg",
+  "./assets/cont-play.png",
+  "./assets/delete-icon.png",
+  "./assets/edit-icon.png",
+  "./assets/render-icon.png",
   "./assets/icons/icon-192.png",
-  "./assets/icons/icon-512.png"
+  "./assets/icons/icon-512.png",
+  "./assets/clicks/Cowbell-1.wav",
+  "./assets/clicks/Cowbell-2.wav",
+  "./assets/clicks/Klank-3.wav",
+  "./assets/clicks/Korg-N1R-Shaker.wav",
+  "./assets/clicks/Woodblock.wav"
 ];
 
 self.addEventListener("install", (event) => {

@@ -159,8 +159,21 @@ function init() {
   wireEvents();
   initDiagnosticsToggle();
   render();
+  requestPersistentStorage();
   queueEnsureCurrentSetRendered({ forceAll: false });
   registerServiceWorker();
+}
+
+async function requestPersistentStorage() {
+  if (!navigator.storage || typeof navigator.storage.persist !== "function") {
+    return;
+  }
+
+  try {
+    await navigator.storage.persist();
+  } catch {
+    // Best-effort only; app continues if persistence isn't granted.
+  }
 }
 
 function wireEvents() {
