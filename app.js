@@ -118,6 +118,7 @@ const els = {
   contextMenu: document.getElementById("contextMenu"),
   typeMasterBtn: document.getElementById("typeMasterBtn"),
   typeBuiltBtn: document.getElementById("typeBuiltBtn"),
+  typeLoopBtn: document.getElementById("typeLoopBtn"),
   trackForm: document.getElementById("trackForm"),
   trackNameInput: document.getElementById("trackNameInput"),
   mainAudioInput: document.getElementById("mainAudioInput"),
@@ -143,6 +144,16 @@ const els = {
   strongBeatClickSampleInput: document.getElementById("strongBeatClickSampleInput"),
   customStrongBeatFileInput: document.getElementById("customStrongBeatFileInput"),
   customStrongBeatFileState: document.getElementById("customStrongBeatFileState"),
+  loopMainClickSampleInput: document.getElementById("loopMainClickSampleInput"),
+  loopCustomMainClickFileInput: document.getElementById("loopCustomMainClickFileInput"),
+  loopCustomMainClickFileState: document.getElementById("loopCustomMainClickFileState"),
+  loopStrongBeatEnabledInput: document.getElementById("loopStrongBeatEnabledInput"),
+  loopStrongBeatRow: document.getElementById("loopStrongBeatRow"),
+  loopStrongBeatClickSampleInput: document.getElementById("loopStrongBeatClickSampleInput"),
+  loopCustomStrongBeatFileInput: document.getElementById("loopCustomStrongBeatFileInput"),
+  loopCustomStrongBeatFileState: document.getElementById("loopCustomStrongBeatFileState"),
+  loopBpmInput: document.getElementById("loopBpmInput"),
+  loopTimeSignatureInput: document.getElementById("loopTimeSignatureInput"),
   splitOutputInput: document.getElementById("splitOutputInput"),
   clickChannelInput: document.getElementById("clickChannelInput"),
   backingChannelInput: document.getElementById("backingChannelInput"),
@@ -276,6 +287,7 @@ function wireEvents() {
 
   bind(els.typeMasterBtn, "click", () => setTrackType("master"));
   bind(els.typeBuiltBtn, "click", () => setTrackType("built"));
+  bind(els.typeLoopBtn, "click", () => setTrackType("loop"));
   bind(els.trackForm, "submit", onSubmitTrack);
   bind(els.addSectionBtn, "click", () => addSectionRow());
 
@@ -309,9 +321,25 @@ function wireEvents() {
     syncFilePresenceIndicators();
     syncCountInControls();
   });
+  bind(els.loopCustomMainClickFileInput, "change", () => {
+    if (els.loopCustomMainClickFileInput.files.length > 0) {
+      els.loopCustomMainClickFileInput.dataset.existing = "";
+    }
+    syncFilePresenceIndicators();
+    syncCountInControls();
+  });
+  bind(els.loopCustomStrongBeatFileInput, "change", () => {
+    if (els.loopCustomStrongBeatFileInput.files.length > 0) {
+      els.loopCustomStrongBeatFileInput.dataset.existing = "";
+    }
+    syncFilePresenceIndicators();
+    syncCountInControls();
+  });
   bind(els.mainAudioInput, "change", syncFilePresenceIndicators);
   bind(els.strongBeatEnabledInput, "change", syncCountInControls);
   bind(els.mainClickSampleInput, "change", syncCountInControls);
+  bind(els.loopStrongBeatEnabledInput, "change", syncCountInControls);
+  bind(els.loopMainClickSampleInput, "change", syncCountInControls);
 
   bind(els.transportPlayBtn, "click", onPlayCurrentTrack);
   bind(els.transportStopBtn, "click", () => {
@@ -570,14 +598,20 @@ function render() {
 }
 
 function isCurrentSetRenderedFully() {
-  const buildTracks = (appState.currentSet.tracks || []).filter((track) => track.type === "built");
-  if (!buildTracks.length) {
+  const renderableTracks = (appState.currentSet.tracks || []).filter((track) => track.type === "built" || track.type === "loop");
+  if (!renderableTracks.length) {
     return false;
   }
-  return buildTracks.every((track) => {
-    const rendered = track.built?.rendered;
-    const validation = track.built?.renderValidation;
-    return !!rendered?.ready && !!rendered?.clickFileId && !!rendered?.backingFileId && validation?.ok !== false;
+  return renderableTracks.every((track) => {
+    if (track.type === "built") {
+      const rendered = track.built?.rendered;
+      const validation = track.built?.renderValidation;
+      return !!rendered?.ready && !!rendered?.clickFileId && !!rendered?.backingFileId && validation?.ok !== false;
+    }
+
+    const rendered = track.loop?.rendered;
+    const validation = track.loop?.renderValidation;
+    return !!rendered?.ready && !!rendered?.loopFileId && validation?.ok !== false;
   });
 }
 
@@ -593,7 +627,9 @@ function renderTrackRows() {
 
     const baseDurationSec = totalTrackSeconds(track);
     const playbackState = getTrackPlaybackState(track, index, baseDurationSec);
-    const trackDuration = formatDuration(playbackState.remainingSec);
+    const trackDuration = track.type === "loop"
+      ? "LOOP"
+      : formatDuration(playbackState.remainingSec);
     const bpmValue = displayBpmForTrackCard(track);
     const status = getTrackRenderStatus(track);
 
@@ -662,6 +698,15 @@ function renderTrackRows() {
 
 function getTrackPlaybackState(track, index, baseDurationSec) {
   const visual = appState.playbackVisual;
+
+  if (track.type === "loop" && !!appState.playingHandle && index === appState.playingTrackIndex) {
+    return {
+      playing: true,
+      progressRatio: 0,
+      remainingSec: baseDurationSec
+    };
+  }
+
   const isCurrentTrack =
     !!appState.playingHandle &&
     index === appState.playingTrackIndex &&
@@ -719,6 +764,9 @@ function applyPlaybackVisualToTrackRows() {
 
   rows.forEach((row) => {
     const isPlayingRow = activeTrackPhase && row.dataset.trackId === visual.trackId;
+    const isActiveLoopRow = !!appState.playingHandle
+      && row.dataset.trackId === appState.currentSet.tracks[appState.playingTrackIndex]?.id
+      && appState.currentSet.tracks[appState.playingTrackIndex]?.type === "loop";
     if (isPlayingRow) {
       row.classList.add("playing");
       row.style.setProperty("--play-progress", `${Math.round(visual.progressRatio * 100)}%`);
@@ -733,6 +781,16 @@ function applyPlaybackVisualToTrackRows() {
       return;
     }
 
+    if (isActiveLoopRow) {
+      row.classList.add("playing");
+      row.style.removeProperty("--play-progress");
+      const timeEl = row.querySelector(".track-time");
+      if (timeEl) {
+        timeEl.textContent = "LOOP";
+      }
+      return;
+    }
+
     row.classList.remove("playing");
     row.style.removeProperty("--play-progress");
   });
@@ -743,7 +801,7 @@ function playbackBpmForTrack(track, visual) {
     return null;
   }
 
-  if (track.type === "master") {
+  if (track.type !== "built") {
     return displayBpmForTrackCard(track);
   }
 
@@ -767,6 +825,11 @@ function displayBpmForTrackCard(track) {
     return bpm > 0 ? Math.round(bpm) : "---";
   }
 
+  if (track.type === "loop") {
+    const bpm = Number(track.loop?.bpm) || 0;
+    return bpm > 0 ? Math.round(bpm) : "-";
+  }
+
   return representativeBpm(track.built?.sections);
 }
 
@@ -779,7 +842,7 @@ function builtTrackBpmAtElapsedSec(track, elapsedSec) {
   let cursorSec = 0;
   for (const section of sections) {
     const bpm = Number(section.bpm) || 120;
-    const beatsPerBar = Number(String(section.timeSignature || "4/4").split("/")[0]) || 4;
+    const beatsPerBar = beatsPerBarFromSignature(section.timeSignature);
     const sectionBeats = (Number(section.bars) || 1) * beatsPerBar;
     const sectionDurationSec = sectionBeats * (60 / bpm);
     if (elapsedSec < cursorSec + sectionDurationSec) {
@@ -956,8 +1019,21 @@ function getTrackRenderStatus(track) {
     }
   }
 
-  const rendered = track.built?.rendered;
-  const validation = track.built?.renderValidation;
+  const rendered = track.type === "built" ? track.built?.rendered : track.loop?.rendered;
+  const validation = track.type === "built" ? track.built?.renderValidation : track.loop?.renderValidation;
+
+  if (track.type === "loop") {
+    if (rendered?.ready && validation?.ok !== false) {
+      return { label: "LOOP READY", className: "render-chip-ok" };
+    }
+    if (rendered?.ready && validation?.ok === false) {
+      return { label: "LOOP WARN", className: "render-chip-warn" };
+    }
+    if (rendered?.fallbackMode === "live") {
+      return { label: "LOOP LIVE", className: "render-chip-warn" };
+    }
+    return { label: "NEEDS RENDER", className: "render-chip-pending" };
+  }
 
   if (rendered?.ready && validation?.ok !== false) {
     return { label: "RENDERED OK", className: "render-chip-ok" };
@@ -1224,15 +1300,15 @@ function queueEnsureCurrentSetRendered(options = { forceAll: false }) {
 
   clearRenderQueueBannerHideTimer();
 
-  const buildTracks = (appState.currentSet.tracks || []).filter((track) => track.type === "built");
+  const renderableTracks = (appState.currentSet.tracks || []).filter((track) => track.type === "built" || track.type === "loop");
   appState.renderStatusByTrackId = {};
   appState.renderProgress.active = true;
-  appState.renderProgress.total = buildTracks.length;
+  appState.renderProgress.total = renderableTracks.length;
   appState.renderProgress.done = 0;
   appState.renderProgress.showBanner = !!options.showBanner;
   appState.renderProgress.currentTrackId = null;
   appState.renderProgress.currentTrackName = "Preparing...";
-  appState.renderProgress.queuedTrackIds = buildTracks.map((track) => track.id);
+  appState.renderProgress.queuedTrackIds = renderableTracks.map((track) => track.id);
   appState.renderProgress.doneTrackIds = [];
   appState.renderProgress.lastMessage = "";
   appState.renderProgress.lastMessageUntil = 0;
@@ -1286,16 +1362,18 @@ async function ensureSetRendered(set, options = { forceAll: false }) {
   let processed = 0;
 
   for (const track of tracks) {
-    if (track.type !== "built") {
+    if (track.type !== "built" && track.type !== "loop") {
       continue;
     }
 
     appState.renderProgress.currentTrackId = track.id;
-    appState.renderProgress.currentTrackName = track.displayName || "Build Track";
+    appState.renderProgress.currentTrackName = track.displayName || (track.type === "loop" ? "Loop Track" : "Build Track");
     render();
 
     const stepStartMs = performance.now();
-    const result = await ensureBuiltTrackRendered(track, options);
+    const result = track.type === "loop"
+      ? await ensureLoopTrackRendered(track, options)
+      : await ensureBuiltTrackRendered(track, options);
     changed = changed || result.changed;
     processed += 1;
     appState.renderProgress.done = processed;
@@ -1350,6 +1428,37 @@ async function ensureBuiltTrackRendered(track, options = { forceAll: false }) {
     const rerender = await renderAndPersistBuiltTrackAssets(track.built);
     track.built.rendered = rerender.rendered;
     track.built.renderValidation = rerender.validation;
+    delete appState.renderStatusByTrackId[track.id];
+    return { changed: true };
+  } catch {
+    appState.renderStatusByTrackId[track.id] = "error";
+    return { changed: false };
+  }
+}
+
+async function ensureLoopTrackRendered(track, options = { forceAll: false }) {
+  const forceAll = !!options.forceAll;
+  const rendered = track.loop?.rendered;
+  const validation = track.loop?.renderValidation;
+  let needsRender = forceAll || !rendered?.ready || !rendered?.loopFileId || validation?.ok === false;
+
+  if (!needsRender) {
+    const loopFile = await getFileById(rendered.loopFileId);
+    needsRender = !loopFile;
+  }
+
+  if (!needsRender) {
+    delete appState.renderStatusByTrackId[track.id];
+    return { changed: false };
+  }
+
+  appState.renderStatusByTrackId[track.id] = "rendering";
+  render();
+
+  try {
+    const rerender = await renderAndPersistLoopTrackAssets(track.loop);
+    track.loop.rendered = rerender.rendered;
+    track.loop.renderValidation = rerender.validation;
     delete appState.renderStatusByTrackId[track.id];
     return { changed: true };
   } catch {
@@ -1423,9 +1532,15 @@ function openTrackModal(mode, trackId = null) {
   els.customMainClickFileInput.dataset.existingName = "";
   els.customStrongBeatFileInput.dataset.existing = "";
   els.customStrongBeatFileInput.dataset.existingName = "";
+  els.loopCustomMainClickFileInput.dataset.existing = "";
+  els.loopCustomMainClickFileInput.dataset.existingName = "";
+  els.loopCustomStrongBeatFileInput.dataset.existing = "";
+  els.loopCustomStrongBeatFileInput.dataset.existingName = "";
   els.sectionList.innerHTML = "";
   addSectionRow({ name: "Verse", bpm: 120, timeSignature: "4/4", bars: 8 });
   addSectionRow({ name: "Chorus", bpm: 120, timeSignature: "4/4", bars: 8 });
+  els.loopBpmInput.value = 120;
+  els.loopTimeSignatureInput.value = "4/4";
   syncCountInControls();
 
   if (mode === "edit") {
@@ -1445,7 +1560,7 @@ function openTrackModal(mode, trackId = null) {
       els.masterClickSampleInput.value = track.masterCountIn?.clickSample || "beep";
       els.masterCountInFileInput.dataset.existing = track.masterCountIn?.customFileId || "";
       els.masterCountInFileInput.dataset.existingName = track.masterCountIn?.customFileName || "";
-    } else {
+    } else if (track.type === "built") {
       els.mainAudioInput.dataset.existingName = "";
       const firstSection = track.built.sections?.[0] || {};
       els.countInInput.checked = !!track.built.countIn;
@@ -1476,6 +1591,17 @@ function openTrackModal(mode, trackId = null) {
       if (!track.built.sections?.length) {
         addSectionRow({ name: "Section", bpm: 120, timeSignature: "4/4", bars: 8 });
       }
+    } else {
+      els.mainAudioInput.dataset.existingName = "";
+      els.loopMainClickSampleInput.value = track.loop?.mainClickSample || "beep";
+      els.loopCustomMainClickFileInput.dataset.existing = track.loop?.customMainClickFileId || "";
+      els.loopCustomMainClickFileInput.dataset.existingName = track.loop?.customMainClickFileName || "";
+      els.loopStrongBeatEnabledInput.checked = !!track.loop?.strongBeatEnabled;
+      els.loopStrongBeatClickSampleInput.value = track.loop?.strongBeatClickSample || "rim";
+      els.loopCustomStrongBeatFileInput.dataset.existing = track.loop?.customStrongBeatFileId || "";
+      els.loopCustomStrongBeatFileInput.dataset.existingName = track.loop?.customStrongBeatFileName || "";
+      els.loopBpmInput.value = Number(track.loop?.bpm) || 120;
+      els.loopTimeSignatureInput.value = track.loop?.timeSignature || "4/4";
     }
   } else {
     els.mainAudioInput.dataset.existingName = "";
@@ -1541,14 +1667,31 @@ function syncFilePresenceIndicators() {
     customStrongBeatName ? `Current file: ${customStrongBeatName}` : "No file selected",
     !customStrongBeatName
   );
+
+  const loopMainClickName = visibleFileNameFromInput(els.loopCustomMainClickFileInput);
+  setFilePresenceText(
+    els.loopCustomMainClickFileState,
+    loopMainClickName ? `Current file: ${loopMainClickName}` : "No file selected",
+    !loopMainClickName
+  );
+
+  const loopStrongBeatName = visibleFileNameFromInput(els.loopCustomStrongBeatFileInput);
+  setFilePresenceText(
+    els.loopCustomStrongBeatFileState,
+    loopStrongBeatName ? `Current file: ${loopStrongBeatName}` : "No file selected",
+    !loopStrongBeatName
+  );
 }
 
 function setTrackType(type) {
   appState.activeType = type;
   const isMaster = type === "master";
+  const isBuilt = type === "built";
+  const isLoop = type === "loop";
 
   els.typeMasterBtn.classList.toggle("active", isMaster);
-  els.typeBuiltBtn.classList.toggle("active", !isMaster);
+  els.typeBuiltBtn.classList.toggle("active", isBuilt);
+  els.typeLoopBtn.classList.toggle("active", isLoop);
 
   const masterOnlyNodes = document.querySelectorAll(".master-only");
   masterOnlyNodes.forEach((node) => {
@@ -1557,7 +1700,12 @@ function setTrackType(type) {
 
   const builtOnlyNodes = document.querySelectorAll(".built-only");
   builtOnlyNodes.forEach((node) => {
-    node.style.display = isMaster ? "none" : "block";
+    node.style.display = isBuilt ? "block" : "none";
+  });
+
+  const loopOnlyNodes = document.querySelectorAll(".loop-only");
+  loopOnlyNodes.forEach((node) => {
+    node.style.display = isLoop ? "block" : "none";
   });
 
   syncCountInControls();
@@ -1592,6 +1740,18 @@ function syncCountInControls() {
   const hasCustomStrongBeat = strongBeatEnabled && (els.customStrongBeatFileInput.files.length > 0 || !!els.customStrongBeatFileInput.dataset.existing);
   const autoStrongBeatLocked = strongBeatEnabled && usesAutoStrongBeatBuiltIn;
   els.strongBeatClickSampleInput.disabled = !strongBeatEnabled || hasCustomStrongBeat || autoStrongBeatLocked;
+
+  const loopHasCustomMainClick = els.loopCustomMainClickFileInput.files.length > 0 || !!els.loopCustomMainClickFileInput.dataset.existing;
+  els.loopMainClickSampleInput.disabled = loopHasCustomMainClick;
+  const loopUsesAutoStrongBeatBuiltIn = !loopHasCustomMainClick && AUTO_STRONG_MAIN_SAMPLES.has(els.loopMainClickSampleInput.value || "beep");
+
+  const loopStrongBeatEnabled = !!els.loopStrongBeatEnabledInput.checked;
+  els.loopStrongBeatRow.classList.toggle("hidden", !loopStrongBeatEnabled);
+  els.loopCustomStrongBeatFileInput.disabled = !loopStrongBeatEnabled;
+  const loopHasCustomStrongBeat = loopStrongBeatEnabled
+    && (els.loopCustomStrongBeatFileInput.files.length > 0 || !!els.loopCustomStrongBeatFileInput.dataset.existing);
+  const loopAutoStrongBeatLocked = loopStrongBeatEnabled && loopUsesAutoStrongBeatBuiltIn;
+  els.loopStrongBeatClickSampleInput.disabled = !loopStrongBeatEnabled || loopHasCustomStrongBeat || loopAutoStrongBeatLocked;
 }
 
 function addSectionRow(section = {}) {
@@ -1638,8 +1798,10 @@ async function onSubmitTrack(event) {
   let nextTrack;
   if (appState.activeType === "master") {
     nextTrack = await buildMasterTrack(displayName);
-  } else {
+  } else if (appState.activeType === "built") {
     nextTrack = await buildBuiltTrack(displayName);
+  } else {
+    nextTrack = await buildLoopTrack(displayName);
   }
 
   if (!nextTrack) {
@@ -1800,6 +1962,52 @@ async function buildBuiltTrack(displayName) {
   };
 }
 
+async function buildLoopTrack(displayName) {
+  const editingTrack = getEditingTrack();
+
+  let customMainClickFileId = editingTrack?.loop?.customMainClickFileId || null;
+  let customMainClickFileName = editingTrack?.loop?.customMainClickFileName || "";
+
+  if (els.loopCustomMainClickFileInput.files[0]) {
+    customMainClickFileId = await saveFileToDb(els.loopCustomMainClickFileInput.files[0]);
+    customMainClickFileName = els.loopCustomMainClickFileInput.files[0].name;
+  }
+
+  let customStrongBeatFileId = editingTrack?.loop?.customStrongBeatFileId || null;
+  let customStrongBeatFileName = editingTrack?.loop?.customStrongBeatFileName || "";
+
+  if (els.loopCustomStrongBeatFileInput.files[0]) {
+    customStrongBeatFileId = await saveFileToDb(els.loopCustomStrongBeatFileInput.files[0]);
+    customStrongBeatFileName = els.loopCustomStrongBeatFileInput.files[0].name;
+  }
+
+  const draftLoop = {
+    bpm: Number(els.loopBpmInput.value) || 120,
+    timeSignature: els.loopTimeSignatureInput.value || "4/4",
+    mainClickSample: els.loopMainClickSampleInput.value || "beep",
+    customMainClickFileId,
+    customMainClickFileName,
+    strongBeatEnabled: !!els.loopStrongBeatEnabledInput.checked,
+    strongBeatClickSample: els.loopStrongBeatClickSampleInput.value || "rim",
+    customStrongBeatFileId,
+    customStrongBeatFileName,
+    rendered: editingTrack?.type === "loop" ? editingTrack.loop?.rendered : null
+  };
+
+  const renderResult = await renderAndPersistLoopTrackAssets(draftLoop);
+
+  return {
+    id: crypto.randomUUID(),
+    type: "loop",
+    displayName,
+    loop: {
+      ...draftLoop,
+      rendered: renderResult.rendered,
+      renderValidation: renderResult.validation
+    }
+  };
+}
+
 function getEditingTrack() {
   if (!appState.editingTrackId) {
     return null;
@@ -1825,6 +2033,8 @@ async function onPlayCurrentTrack() {
 
   if (track.type === "master") {
     await playMasterTrack(track, sessionId);
+  } else if (track.type === "loop") {
+    await playLoopTrack(track, sessionId);
   } else {
     await playBuiltTrack(track, sessionId);
   }
@@ -2174,7 +2384,7 @@ async function playBuiltTrackLive(track, sessionId) {
   let sectionStartSec = 0;
   for (const section of sections) {
     const sectionBpm = Number(section.bpm) || 120;
-    const beatsPerBar = Number(String(section.timeSignature || "4/4").split("/")[0]) || 4;
+    const beatsPerBar = beatsPerBarFromSignature(section.timeSignature);
     const sectionBeats = (Number(section.bars) || 1) * beatsPerBar;
     const beatDuration = 60 / sectionBpm;
 
@@ -2265,6 +2475,187 @@ async function playBuiltTrackLive(track, sessionId) {
   }, Math.max((countInDurationSec + durationSec + 0.2) * 1000, 500));
 }
 
+async function playLoopTrack(track, sessionId) {
+  const renderedReady = !!track.loop?.rendered?.ready;
+  if (renderedReady) {
+    const renderedOk = await playLoopTrackRendered(track, sessionId);
+    if (renderedOk) {
+      return;
+    }
+  }
+
+  await playLoopTrackLive(track, sessionId);
+}
+
+async function playLoopTrackRendered(track, sessionId) {
+  const rendered = track.loop?.rendered || {};
+  const loopFile = rendered.loopFileId ? await getFileById(rendered.loopFileId) : null;
+  if (!loopFile) {
+    return false;
+  }
+
+  const context = new (window.AudioContext || window.webkitAudioContext)();
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+
+  let source = null;
+  let cancelled = false;
+
+  const stop = () => {
+    cancelled = true;
+    if (source) {
+      try {
+        source.stop();
+      } catch {
+        // Stop can throw when source already ended.
+      }
+      source.disconnect();
+      source = null;
+    }
+    if (context.state !== "closed") {
+      context.close();
+    }
+    appState.playingHandle = null;
+    resetPlaybackVisual();
+    dumpDiagnosticSummary(sessionId);
+    render();
+  };
+
+  appState.playingHandle = { stop };
+  render();
+
+  try {
+    const fileData = await loopFile.arrayBuffer();
+    const loopBuffer = await context.decodeAudioData(fileData.slice(0));
+    if (cancelled) {
+      stop();
+      return true;
+    }
+
+    await waitMs(PLAY_SYNC_PREP_MS);
+    if (cancelled) {
+      stop();
+      return true;
+    }
+
+    source = context.createBufferSource();
+    source.buffer = loopBuffer;
+    source.loop = true;
+    source.loopStart = 0;
+    source.loopEnd = Math.max(0.05, Number(rendered.loopDurationSec) || loopBuffer.duration);
+    source.connect(context.destination);
+    source.start(context.currentTime);
+    return true;
+  } catch {
+    stop();
+    return false;
+  }
+}
+
+async function playLoopTrackLive(track, sessionId) {
+  const context = new (window.AudioContext || window.webkitAudioContext)();
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+
+  const loopConfig = track.loop || {};
+  const bpm = Math.max(20, Number(loopConfig.bpm) || 120);
+  const beatDurationSec = 60 / bpm;
+  const beatsPerBar = beatsPerBarFromSignature(loopConfig.timeSignature);
+  const mainSample = loopConfig.mainClickSample || "beep";
+  const strongSpec = resolveStrongBeatSpec(
+    mainSample,
+    loopConfig.strongBeatClickSample || "rim",
+    !!loopConfig.customStrongBeatFileId
+  );
+
+  const builtInBuffers = await loadBuiltInSampleBuffersForContext(context, [mainSample, strongSpec.sample]);
+
+  let customMainClickBuffer = null;
+  if (loopConfig.customMainClickFileId) {
+    const customMainFile = await getFileById(loopConfig.customMainClickFileId);
+    if (customMainFile) {
+      customMainClickBuffer = await decodeFileToAudioBuffer(context, customMainFile);
+    }
+  }
+
+  let customStrongBeatBuffer = null;
+  if (loopConfig.customStrongBeatFileId) {
+    const customStrongFile = await getFileById(loopConfig.customStrongBeatFileId);
+    if (customStrongFile) {
+      customStrongBeatBuffer = await decodeFileToAudioBuffer(context, customStrongFile);
+    }
+  }
+
+  let cancelled = false;
+  const lookaheadSec = 0.2;
+  const scheduleIntervalMs = 60;
+  const contextClock = makeContextClock(context);
+  let nextBeatAt = context.currentTime + (PLAY_SYNC_PREP_MS / 1000);
+  let beatIndex = 0;
+
+  const scheduleBeats = () => {
+    if (cancelled) {
+      return;
+    }
+
+    while (nextBeatAt < context.currentTime + lookaheadSec) {
+      const barBeatIndex = beatIndex % beatsPerBar;
+      const isStrongBeat = !!loopConfig.strongBeatEnabled && barBeatIndex === 0;
+      if (isStrongBeat) {
+        scheduleClickCueAt(
+          context,
+          customStrongBeatBuffer || builtInBuffers.get(strongSpec.sample) || null,
+          strongSpec.sample,
+          0,
+          nextBeatAt,
+          {
+            sessionId,
+            label: "loop strong beat",
+            clock: contextClock
+          },
+          { playbackRate: strongSpec.playbackRate }
+        );
+      } else {
+        scheduleClickCueAt(
+          context,
+          customMainClickBuffer || builtInBuffers.get(mainSample) || null,
+          mainSample,
+          0,
+          nextBeatAt,
+          {
+            sessionId,
+            label: "loop click beat",
+            clock: contextClock
+          }
+        );
+      }
+
+      nextBeatAt += beatDurationSec;
+      beatIndex += 1;
+    }
+  };
+
+  const intervalId = setInterval(scheduleBeats, scheduleIntervalMs);
+  scheduleBeats();
+
+  const stop = () => {
+    cancelled = true;
+    clearInterval(intervalId);
+    if (context.state !== "closed") {
+      context.close();
+    }
+    appState.playingHandle = null;
+    resetPlaybackVisual();
+    dumpDiagnosticSummary(sessionId);
+    render();
+  };
+
+  appState.playingHandle = { stop };
+  render();
+}
+
 function stopPlayback() {
   if (appState.playingHandle) {
     appState.playingHandle.stop();
@@ -2298,6 +2689,25 @@ function showTrackInfo() {
         `Length: ${formatDuration(totalTrackSeconds(track))}`,
         `Audio: ${track.audioName || "Unknown"}`,
         "Tempo and time are locked to file metadata."
+      ].join("\n")
+    );
+    return;
+  }
+
+  if (track.type === "loop") {
+    const loopValidation = track.loop?.renderValidation;
+    const loopCheck = loopValidation?.checks?.[0];
+    const loopValidationLine = loopValidation
+      ? `Render validation: ${loopValidation.ok ? "OK" : "Needs attention"} (${loopCheck || `delta ${loopValidation.deltaMs ?? "n/a"}ms`})`
+      : "Render validation: not available";
+    window.alert(
+      [
+        `${track.displayName} (Loop Track)`,
+        `BPM: ${Math.round(Number(track.loop?.bpm) || 120)}`,
+        `Time Signature: ${track.loop?.timeSignature || "4/4"}`,
+        `Strong beat: ${track.loop?.strongBeatEnabled ? "On" : "Off"}`,
+        `Loop length: ${formatDuration(totalTrackSeconds(track))}`,
+        loopValidationLine
       ].join("\n")
     );
     return;
@@ -2348,6 +2758,11 @@ async function replaceAudio(trackId) {
       return;
     }
 
+    if (track.type === "loop") {
+      window.alert("Loop tracks do not use backing audio files.");
+      return;
+    }
+
     const newId = await saveFileToDb(file);
 
     if (track.type === "master") {
@@ -2356,7 +2771,7 @@ async function replaceAudio(trackId) {
       const meta = await getAudioMetadata(file);
       track.lockedMeta.lengthSec = meta.durationSec;
       track.lockedMeta.bpm = Math.round(meta.estimatedBpm || track.lockedMeta.bpm || 120);
-    } else {
+    } else if (track.type === "built") {
       const sections = track.built.sections || [];
       if (!sections.length) {
         return;
@@ -2473,6 +2888,18 @@ function confirmDeleteTrack(trackId) {
       }
     }
 
+    if (track.type === "loop" && track.loop.customMainClickFileId) {
+      await deleteFileFromDb(track.loop.customMainClickFileId);
+    }
+
+    if (track.type === "loop" && track.loop.customStrongBeatFileId) {
+      await deleteFileFromDb(track.loop.customStrongBeatFileId);
+    }
+
+    if (track.type === "loop" && track.loop.rendered?.loopFileId) {
+      await deleteFileFromDb(track.loop.rendered.loopFileId);
+    }
+
     appState.currentSet.tracks.splice(index, 1);
     if (appState.selectedTrackIndex === index) {
       appState.selectedTrackIndex = Math.min(index, appState.currentSet.tracks.length - 1);
@@ -2499,8 +2926,14 @@ function totalTrackSeconds(track) {
     return Number(track.lockedMeta?.lengthSec || 0);
   }
 
+  if (track.type === "loop") {
+    const bpm = Number(track.loop?.bpm) || 120;
+    const beatsPerBar = beatsPerBarFromSignature(track.loop?.timeSignature);
+    return beatsPerBar * (60 / bpm);
+  }
+
   return (track.built.sections || []).reduce((sum, section) => {
-    const beatsPerBar = Number(String(section.timeSignature || "4/4").split("/")[0]) || 4;
+    const beatsPerBar = beatsPerBarFromSignature(section.timeSignature);
     const beats = (Number(section.bars) || 0) * beatsPerBar;
     const bpm = Number(section.bpm) || 120;
     return sum + beats * (60 / bpm);
@@ -2620,6 +3053,122 @@ async function renderAndPersistBuiltTrackAssets(built) {
   }
 }
 
+async function renderAndPersistLoopTrackAssets(loop) {
+  const bpm = Math.max(20, Number(loop.bpm) || 120);
+  const beatsPerBar = beatsPerBarFromSignature(loop.timeSignature);
+  const loopDurationSec = beatsPerBar * (60 / bpm);
+  const renderDurationSec = loopDurationSec + RENDER_DURATION_PAD_SEC;
+
+  let decodeContext = null;
+  try {
+    decodeContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    const customMainFile = loop.customMainClickFileId ? await getFileById(loop.customMainClickFileId) : null;
+    const customStrongFile = loop.customStrongBeatFileId ? await getFileById(loop.customStrongBeatFileId) : null;
+
+    const mainSample = loop.mainClickSample || "beep";
+    const strongSpec = resolveStrongBeatSpec(
+      mainSample,
+      loop.strongBeatClickSample || "rim",
+      !!loop.customStrongBeatFileId
+    );
+
+    const builtInBuffers = await loadBuiltInSampleBuffersForContext(decodeContext, [mainSample, strongSpec.sample]);
+    const customMainBuffer = customMainFile ? await decodeFileToAudioBuffer(decodeContext, customMainFile) : null;
+    const customStrongBuffer = customStrongFile ? await decodeFileToAudioBuffer(decodeContext, customStrongFile) : null;
+
+    const frameCount = Math.max(1, Math.ceil(renderDurationSec * RENDER_SAMPLE_RATE));
+    const offlineContext = new OfflineAudioContext(2, frameCount, RENDER_SAMPLE_RATE);
+
+    for (let beat = 0; beat < beatsPerBar; beat += 1) {
+      const when = beat * (60 / bpm);
+      const isStrongBeat = !!loop.strongBeatEnabled && beat === 0;
+      if (isStrongBeat) {
+        scheduleClickCueAt(
+          offlineContext,
+          customStrongBuffer || builtInBuffers.get(strongSpec.sample) || null,
+          strongSpec.sample,
+          0,
+          when,
+          null,
+          { playbackRate: strongSpec.playbackRate }
+        );
+      } else {
+        scheduleClickCueAt(
+          offlineContext,
+          customMainBuffer || builtInBuffers.get(mainSample) || null,
+          mainSample,
+          0,
+          when
+        );
+      }
+    }
+
+    const loopBuffer = await offlineContext.startRendering();
+    const loopBlob = audioBufferToWavBlob(loopBuffer);
+    const loopFileId = await saveFileToDb(new File([loopBlob], `loop-stem-${crypto.randomUUID()}.wav`, { type: "audio/wav" }));
+
+    const previousLoopFileId = loop.rendered?.loopFileId;
+    if (previousLoopFileId && previousLoopFileId !== loopFileId) {
+      await deleteFileFromDb(previousLoopFileId);
+    }
+
+    const validation = validateLoopRenderedTrack(loopDurationSec, loopBuffer.duration);
+    return {
+      rendered: {
+        ready: true,
+        loopFileId,
+        loopDurationSec: roundMs(loopDurationSec),
+        renderedDurationSec: roundMs(loopBuffer.duration),
+        renderedAt: Date.now(),
+        fallbackMode: "live"
+      },
+      validation
+    };
+  } catch {
+    return {
+      rendered: {
+        ready: false,
+        loopFileId: null,
+        loopDurationSec: roundMs(loopDurationSec),
+        renderedDurationSec: 0,
+        renderedAt: Date.now(),
+        fallbackMode: "live"
+      },
+      validation: {
+        ok: false,
+        expectedLoopDurationSec: roundMs(loopDurationSec),
+        renderedDurationSec: 0,
+        deltaMs: null,
+        checks: ["Loop render failed; live scheduler fallback will be used."]
+      }
+    };
+  } finally {
+    if (decodeContext && decodeContext.state !== "closed") {
+      decodeContext.close();
+    }
+  }
+}
+
+function validateLoopRenderedTrack(loopDurationSec, renderedDurationSec) {
+  const expectedRenderDurationSec = loopDurationSec + RENDER_DURATION_PAD_SEC;
+  const deltaMs = Math.abs((renderedDurationSec - expectedRenderDurationSec) * 1000);
+  const checks = [];
+
+  if (deltaMs > RENDER_VALIDATION_TOLERANCE_MS) {
+    checks.push(`Loop render duration delta ${Math.round(deltaMs)}ms exceeds tolerance ${RENDER_VALIDATION_TOLERANCE_MS}ms`);
+  }
+
+  return {
+    ok: checks.length === 0,
+    expectedLoopDurationSec: roundMs(loopDurationSec),
+    expectedRenderDurationSec: roundMs(expectedRenderDurationSec),
+    renderedDurationSec: roundMs(renderedDurationSec),
+    deltaMs: roundMs(deltaMs),
+    checks
+  };
+}
+
 function buildTrackTimeline(built) {
   const countInBeats = built.countIn ? (Number(built.countInBeats) || 4) : 0;
   const countInBpm = Number(built.countInBpm) || 120;
@@ -2628,7 +3177,7 @@ function buildTrackTimeline(built) {
   let cursorSec = countInDurationSec;
   const sectionWindows = (built.sections || []).map((section) => {
     const bpm = Number(section.bpm) || 120;
-    const beatsPerBar = Number(String(section.timeSignature || "4/4").split("/")[0]) || 4;
+    const beatsPerBar = beatsPerBarFromSignature(section.timeSignature);
     const beats = (Number(section.bars) || 1) * beatsPerBar;
     const durationSec = beats * (60 / bpm);
 
@@ -3027,20 +3576,26 @@ function panValue(channel) {
   return 0;
 }
 
+function beatsPerBarFromSignature(timeSignature) {
+  return Number(String(timeSignature || "4/4").split("/")[0]) || 4;
+}
+
 function isAssetBackedBuiltInSample(sample) {
   return !!BUILTIN_CLICK_ASSET_PATHS[sample];
 }
 
 function resolveStrongBeatSpecForBuiltTrack(built) {
   const mainSample = built.mainClickSample || built.clickSample || "beep";
-  const hasCustomStrongBeat = !!built.customStrongBeatFileId;
+  return resolveStrongBeatSpec(mainSample, built.strongBeatClickSample || "rim", !!built.customStrongBeatFileId);
+}
 
-  if (!!built.strongBeatEnabled && !hasCustomStrongBeat && STRONG_BEAT_AUTO_BY_MAIN_SAMPLE[mainSample]) {
+function resolveStrongBeatSpec(mainSample, strongBeatClickSample, hasCustomStrongBeat) {
+  if (!hasCustomStrongBeat && STRONG_BEAT_AUTO_BY_MAIN_SAMPLE[mainSample]) {
     return STRONG_BEAT_AUTO_BY_MAIN_SAMPLE[mainSample];
   }
 
   return {
-    sample: built.strongBeatClickSample || "rim",
+    sample: strongBeatClickSample || "rim",
     playbackRate: 1
   };
 }

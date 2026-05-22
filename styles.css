@@ -898,6 +898,8 @@ fieldset {
 
 .built-only input[type="number"],
 .built-only input[type="file"],
+.loop-only input[type="number"],
+.loop-only input[type="file"],
 .master-only input[type="number"],
 .master-only input[type="file"] {
   min-height: 48px;
@@ -1176,6 +1178,8 @@ fieldset {
   .remove-section,
   .built-only input[type="number"],
   .built-only input[type="file"],
+  .loop-only input[type="number"],
+  .loop-only input[type="file"],
   .master-only input[type="number"],
   .master-only input[type="file"] {
     min-height: 42px;

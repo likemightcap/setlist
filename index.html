@@ -63,6 +63,7 @@
       <div class="type-switch" role="tablist" aria-label="Track type">
         <button id="typeMasterBtn" class="type-chip active" data-type="master">Master Slate</button>
         <button id="typeBuiltBtn" class="type-chip" data-type="built">Build Track</button>
+        <button id="typeLoopBtn" class="type-chip" data-type="loop">Loop</button>
       </div>
 
       <form id="trackForm" class="form-grid">
@@ -244,6 +245,74 @@
               <span></span>
             </div>
             <div id="sectionList"></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="loop-only mode-block" style="display:none;">
+          <legend>Loop Track Options</legend>
+
+          <div class="click-settings-row">
+            <label>
+              Main Click Sound
+              <select id="loopMainClickSampleInput">
+                <option value="beep">Digital Beep</option>
+                <option value="wood">Wood Block</option>
+                <option value="wood2">Wood Block 2</option>
+                <option value="cowbell">Cowbell</option>
+                <option value="klank">Klank</option>
+                <option value="shaker">Shaker</option>
+                <option value="rim">Rim Click</option>
+              </select>
+            </label>
+
+            <label>
+              Custom Click Sound
+              <input id="loopCustomMainClickFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*">
+              <div id="loopCustomMainClickFileState" class="file-presence empty">No file selected</div>
+            </label>
+
+            <label class="checkbox-row click-checkbox-cell">
+              <input id="loopStrongBeatEnabledInput" type="checkbox">
+              <span>Strong beat on the 1</span>
+            </label>
+          </div>
+
+          <div id="loopStrongBeatRow" class="click-settings-row strong-beat-row hidden">
+            <label>
+              Strong Beat Click Sound
+              <select id="loopStrongBeatClickSampleInput">
+                <option value="beep">Digital Beep</option>
+                <option value="wood">Wood Block</option>
+                <option value="wood2">Wood Block 2</option>
+                <option value="cowbell">Cowbell</option>
+                <option value="klank">Klank</option>
+                <option value="shaker">Shaker</option>
+                <option value="rim">Rim Click</option>
+              </select>
+            </label>
+
+            <label>
+              Custom Strong Beat Sound
+              <input id="loopCustomStrongBeatFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*">
+              <div id="loopCustomStrongBeatFileState" class="file-presence empty">No file selected</div>
+            </label>
+          </div>
+
+          <div class="click-settings-row">
+            <label>
+              BPM
+              <input id="loopBpmInput" type="number" min="20" max="320" value="120">
+            </label>
+
+            <label>
+              Time Signature
+              <select id="loopTimeSignatureInput">
+                <option value="4/4">4/4</option>
+                <option value="3/4">3/4</option>
+                <option value="6/8">6/8</option>
+                <option value="7/8">7/8</option>
+              </select>
+            </label>
           </div>
         </fieldset>
 
