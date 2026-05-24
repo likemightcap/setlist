@@ -27,6 +27,20 @@ const STRONG_BEAT_AUTO_BY_MAIN_SAMPLE = {
 const AUTO_STRONG_MAIN_SAMPLES = new Set(Object.keys(STRONG_BEAT_AUTO_BY_MAIN_SAMPLE));
 const BUILTIN_CLICK_ASSET_ARRAY_BUFFER_CACHE = new Map();
 const CHANNEL_CYCLE = ["left", "right", "both"];
+const QUICK_PICKER_FIELD_SELECTOR = "#masterCountInBeatsInput,#masterCountInBpmInput,#masterMainClickBpmInput,#masterMainClickTimeSignatureInput,#countInBeatsInput,#countInBpmInput,#loopCountInBeatsInput,#loopCountInBpmInput,#loopBpmInput,#loopTimeSignatureInput,#masterClickSampleInput,#masterMainClickSampleInput,#masterStrongBeatClickSampleInput,#clickSampleInput,#mainClickSampleInput,#strongBeatClickSampleInput,#loopClickSampleInput,#loopMainClickSampleInput,#loopStrongBeatClickSampleInput,.section-bpm,.section-bars,.section-time-signature";
+const QUICK_PICKER_SOUND_FIELD_IDS = new Set([
+  "masterClickSampleInput",
+  "masterMainClickSampleInput",
+  "masterStrongBeatClickSampleInput",
+  "clickSampleInput",
+  "mainClickSampleInput",
+  "strongBeatClickSampleInput",
+  "loopClickSampleInput",
+  "loopMainClickSampleInput",
+  "loopStrongBeatClickSampleInput"
+]);
+const QUICK_PICKER_HOLD_MS = 220;
+const QUICK_PICKER_STEP_PX = 44;
 
 const appState = {
   currentSet: newEmptySet(),
@@ -101,10 +115,12 @@ const appState = {
     pendingFiles: {},
     pendingNames: {},
     pendingChannels: {},
+    pendingDeletes: {},
     modalDraft: {
       file: null,
       name: "",
-      channel: "both"
+      channel: "both",
+      clearExisting: false
     },
     recorder: {
       mediaRecorder: null,
@@ -115,9 +131,42 @@ const appState = {
       audio: null
     }
   },
+  masterAudioEditor: {
+    draftFile: null,
+    draftName: "",
+    clearExisting: false,
+    previewAudio: null,
+    recorder: {
+      mediaRecorder: null,
+      stream: null,
+      chunks: [],
+      timerId: null,
+      startedAt: 0
+    }
+  },
   trackSave: {
     active: false,
     token: null
+  },
+  quickPicker: {
+    active: false,
+    transient: false,
+    field: null,
+    kind: "",
+    min: 0,
+    max: 0,
+    step: 1,
+    options: [],
+    selectedIndex: 0,
+    startY: 0,
+    gestureStartSelection: 0,
+    pointerId: null,
+    holdTimerId: null,
+    pendingPointerId: null,
+    pendingField: null,
+    pendingStartY: 0,
+    movedBeforeHold: false,
+    suppressClickUntil: 0
   }
 };
 
@@ -155,12 +204,29 @@ const els = {
   mainAudioInput: document.getElementById("mainAudioInput"),
   mainAudioFileState: document.getElementById("mainAudioFileState"),
   masterCountInInput: document.getElementById("masterCountInInput"),
-  masterCountInFields: document.getElementById("masterCountInFields"),
   masterCountInBeatsInput: document.getElementById("masterCountInBeatsInput"),
   masterCountInBpmInput: document.getElementById("masterCountInBpmInput"),
   masterClickSampleInput: document.getElementById("masterClickSampleInput"),
-  masterCountInFileInput: document.getElementById("masterCountInFileInput"),
-  masterCountInFileState: document.getElementById("masterCountInFileState"),
+  masterCountInBacking1EnabledInput: document.getElementById("masterCountInBacking1EnabledInput"),
+  masterCountInBacking2EnabledInput: document.getElementById("masterCountInBacking2EnabledInput"),
+  masterCountInBacking1AudioBtn: document.getElementById("masterCountInBacking1AudioBtn"),
+  masterCountInBacking2AudioBtn: document.getElementById("masterCountInBacking2AudioBtn"),
+  masterCountInBacking1ChannelBtn: document.getElementById("masterCountInBacking1ChannelBtn"),
+  masterCountInBacking2ChannelBtn: document.getElementById("masterCountInBacking2ChannelBtn"),
+  masterMainClickChannelBtn: document.getElementById("masterMainClickChannelBtn"),
+  masterMainClickSampleInput: document.getElementById("masterMainClickSampleInput"),
+  masterMainClickBpmInput: document.getElementById("masterMainClickBpmInput"),
+  masterMainClickTimeSignatureInput: document.getElementById("masterMainClickTimeSignatureInput"),
+  masterStrongBeatEnabledInput: document.getElementById("masterStrongBeatEnabledInput"),
+  masterStrongBeatClickSampleInput: document.getElementById("masterStrongBeatClickSampleInput"),
+  masterRecordBtn: document.getElementById("masterRecordBtn"),
+  masterRecordPlayBtn: document.getElementById("masterRecordPlayBtn"),
+  masterRecordStopBtn: document.getElementById("masterRecordStopBtn"),
+  masterRecordTimer: document.getElementById("masterRecordTimer"),
+  masterUploadBtn: document.getElementById("masterUploadBtn"),
+  masterDeleteBtn: document.getElementById("masterDeleteBtn"),
+  masterUploadLabel: document.getElementById("masterUploadLabel"),
+  masterPlaybackProgressFill: document.getElementById("masterPlaybackProgressFill"),
   countInInput: document.getElementById("countInInput"),
   countInBeatsInput: document.getElementById("countInBeatsInput"),
   countInBpmInput: document.getElementById("countInBpmInput"),
@@ -182,14 +248,20 @@ const els = {
   strongBeatClickSampleInput: document.getElementById("strongBeatClickSampleInput"),
   customStrongBeatFileInput: document.getElementById("customStrongBeatFileInput"),
   customStrongBeatFileState: document.getElementById("customStrongBeatFileState"),
+  loopCountInInput: document.getElementById("loopCountInInput"),
+  loopCountInBeatsInput: document.getElementById("loopCountInBeatsInput"),
+  loopCountInBpmInput: document.getElementById("loopCountInBpmInput"),
+  loopClickSampleInput: document.getElementById("loopClickSampleInput"),
+  loopCountInBacking1EnabledInput: document.getElementById("loopCountInBacking1EnabledInput"),
+  loopCountInBacking2EnabledInput: document.getElementById("loopCountInBacking2EnabledInput"),
+  loopCountInBacking1AudioBtn: document.getElementById("loopCountInBacking1AudioBtn"),
+  loopCountInBacking2AudioBtn: document.getElementById("loopCountInBacking2AudioBtn"),
+  loopCountInBacking1ChannelBtn: document.getElementById("loopCountInBacking1ChannelBtn"),
+  loopCountInBacking2ChannelBtn: document.getElementById("loopCountInBacking2ChannelBtn"),
+  loopMainClickChannelBtn: document.getElementById("loopMainClickChannelBtn"),
   loopMainClickSampleInput: document.getElementById("loopMainClickSampleInput"),
-  loopCustomMainClickFileInput: document.getElementById("loopCustomMainClickFileInput"),
-  loopCustomMainClickFileState: document.getElementById("loopCustomMainClickFileState"),
   loopStrongBeatEnabledInput: document.getElementById("loopStrongBeatEnabledInput"),
-  loopStrongBeatRow: document.getElementById("loopStrongBeatRow"),
   loopStrongBeatClickSampleInput: document.getElementById("loopStrongBeatClickSampleInput"),
-  loopCustomStrongBeatFileInput: document.getElementById("loopCustomStrongBeatFileInput"),
-  loopCustomStrongBeatFileState: document.getElementById("loopCustomStrongBeatFileState"),
   loopBpmInput: document.getElementById("loopBpmInput"),
   loopTimeSignatureInput: document.getElementById("loopTimeSignatureInput"),
   splitOutputInput: document.getElementById("splitOutputInput"),
@@ -211,11 +283,16 @@ const els = {
   backingRecordStopBtn: document.getElementById("backingRecordStopBtn"),
   backingRecordTimer: document.getElementById("backingRecordTimer"),
   backingUploadBtn: document.getElementById("backingUploadBtn"),
+  backingDeleteBtn: document.getElementById("backingDeleteBtn"),
   backingUploadLabel: document.getElementById("backingUploadLabel"),
+  backingPlaybackProgressFill: document.getElementById("backingPlaybackProgressFill"),
   backingModalChannelBtn: document.getElementById("backingModalChannelBtn"),
   backingModalCancelBtn: document.getElementById("backingModalCancelBtn"),
   backingModalOkBtn: document.getElementById("backingModalOkBtn"),
-  backingModalFileInput: document.getElementById("backingModalFileInput")
+  backingModalFileInput: document.getElementById("backingModalFileInput"),
+  quickPickerOverlay: document.getElementById("quickPickerOverlay"),
+  quickPickerCard: document.getElementById("quickPickerCard"),
+  quickPickerRows: document.getElementById("quickPickerRows")
 };
 
 init();
@@ -421,16 +498,12 @@ function wireEvents() {
   bind(els.addSectionBtn, "click", () => addSectionRow());
 
   bind(els.masterCountInInput, "change", syncCountInControls);
+  bind(els.masterCountInBacking1EnabledInput, "change", syncCountInControls);
+  bind(els.masterCountInBacking2EnabledInput, "change", syncCountInControls);
+  bind(els.masterStrongBeatEnabledInput, "change", syncCountInControls);
   bind(els.countInInput, "change", syncCountInControls);
   bind(els.countInBacking1EnabledInput, "change", syncCountInControls);
   bind(els.countInBacking2EnabledInput, "change", syncCountInControls);
-  bind(els.masterCountInFileInput, "change", () => {
-    if (els.masterCountInFileInput.files.length > 0) {
-      els.masterCountInFileInput.dataset.existing = "";
-    }
-    syncFilePresenceIndicators();
-    syncCountInControls();
-  });
   bind(els.customCountInFileInput, "change", () => {
     if (els.customCountInFileInput.files.length > 0) {
       els.customCountInFileInput.dataset.existing = "";
@@ -452,30 +525,36 @@ function wireEvents() {
     syncFilePresenceIndicators();
     syncCountInControls();
   });
-  bind(els.loopCustomMainClickFileInput, "change", () => {
-    if (els.loopCustomMainClickFileInput.files.length > 0) {
-      els.loopCustomMainClickFileInput.dataset.existing = "";
-    }
-    syncFilePresenceIndicators();
-    syncCountInControls();
-  });
-  bind(els.loopCustomStrongBeatFileInput, "change", () => {
-    if (els.loopCustomStrongBeatFileInput.files.length > 0) {
-      els.loopCustomStrongBeatFileInput.dataset.existing = "";
-    }
-    syncFilePresenceIndicators();
-    syncCountInControls();
-  });
-  bind(els.mainAudioInput, "change", syncFilePresenceIndicators);
+  bind(els.mainAudioInput, "change", onMasterAudioFilePicked);
   bind(els.strongBeatEnabledInput, "change", syncCountInControls);
   bind(els.mainClickSampleInput, "change", syncCountInControls);
   bind(els.mainClickChannelBtn, "click", () => cycleMainClickChannel());
+  bind(els.masterMainClickChannelBtn, "click", () => cycleChannelButton(els.masterMainClickChannelBtn));
+  bind(els.loopMainClickChannelBtn, "click", () => cycleChannelButton(els.loopMainClickChannelBtn));
   bind(els.countInBacking1AudioBtn, "click", () => openBackingModal("countIn:1"));
   bind(els.countInBacking2AudioBtn, "click", () => openBackingModal("countIn:2"));
   bind(els.countInBacking1ChannelBtn, "click", () => cycleBackingChannel("countIn:1"));
   bind(els.countInBacking2ChannelBtn, "click", () => cycleBackingChannel("countIn:2"));
+  bind(els.masterCountInBacking1AudioBtn, "click", () => openBackingModal("masterCountIn:1"));
+  bind(els.masterCountInBacking2AudioBtn, "click", () => openBackingModal("masterCountIn:2"));
+  bind(els.masterCountInBacking1ChannelBtn, "click", () => cycleBackingChannel("masterCountIn:1"));
+  bind(els.masterCountInBacking2ChannelBtn, "click", () => cycleBackingChannel("masterCountIn:2"));
+  bind(els.loopCountInInput, "change", syncCountInControls);
+  bind(els.loopCountInBacking1EnabledInput, "change", syncCountInControls);
+  bind(els.loopCountInBacking2EnabledInput, "change", syncCountInControls);
+  bind(els.loopCountInBacking1AudioBtn, "click", () => openBackingModal("loopCountIn:1"));
+  bind(els.loopCountInBacking2AudioBtn, "click", () => openBackingModal("loopCountIn:2"));
+  bind(els.loopCountInBacking1ChannelBtn, "click", () => cycleBackingChannel("loopCountIn:1"));
+  bind(els.loopCountInBacking2ChannelBtn, "click", () => cycleBackingChannel("loopCountIn:2"));
   bind(els.loopStrongBeatEnabledInput, "change", syncCountInControls);
   bind(els.loopMainClickSampleInput, "change", syncCountInControls);
+  bind(els.masterUploadBtn, "click", () => {
+    els.mainAudioInput.click();
+  });
+  bind(els.masterDeleteBtn, "click", onMasterAudioDelete);
+  bind(els.masterRecordBtn, "click", onStartMasterRecording);
+  bind(els.masterRecordStopBtn, "click", onStopMasterRecording);
+  bind(els.masterRecordPlayBtn, "click", onPlayMasterPreview);
 
   bind(els.sectionList, "click", (event) => {
     const audioBtn = event.target.closest(".audio-btn[data-backing-slot]");
@@ -500,6 +579,7 @@ function wireEvents() {
   bind(els.backingUploadBtn, "click", () => {
     els.backingModalFileInput.click();
   });
+  bind(els.backingDeleteBtn, "click", onBackingModalDelete);
   bind(els.backingModalFileInput, "change", onBackingModalUploadFile);
   bind(els.backingModalChannelBtn, "click", onBackingModalCycleChannel);
   bind(els.backingModalCancelBtn, "click", onBackingModalCancel);
@@ -508,6 +588,15 @@ function wireEvents() {
   bind(els.backingRecordStopBtn, "click", onStopBackingRecording);
   bind(els.backingRecordPlayBtn, "click", onPlayBackingPreview);
   bind(els.trackSaveCancelBtn, "click", requestTrackSaveCancel);
+  bind(els.trackModal, "pointerdown", onQuickPickerFieldPointerDown);
+  bind(els.trackModal, "click", onQuickPickerFieldClick);
+  bind(document, "pointermove", onQuickPickerPointerMove);
+  bind(document, "pointerup", onQuickPickerPointerUp);
+  bind(document, "pointercancel", onQuickPickerPointerCancel);
+  bind(els.quickPickerOverlay, "click", onQuickPickerOverlayClick);
+  if (els.quickPickerOverlay) {
+    els.quickPickerOverlay.addEventListener("wheel", onQuickPickerWheel, { passive: false });
+  }
 
   bind(els.transportPlayBtn, "click", onPlayCurrentTrack);
   bind(els.transportStopBtn, "click", () => {
@@ -546,6 +635,11 @@ function wireEvents() {
         stopBackingRecorder(false);
         clearBackingModalDraft();
       }
+      if (id === "trackModal") {
+        closeQuickPicker();
+        stopMasterPreviewAudio(true);
+        stopMasterRecorder(true);
+      }
       closeModal(modal);
     });
   });
@@ -557,6 +651,11 @@ function wireEvents() {
       }
       if (appState.trackSave.active) {
         return;
+      }
+      if (event.target.id === "trackModal") {
+        closeQuickPicker();
+        stopMasterPreviewAudio(true);
+        stopMasterRecorder(true);
       }
       if (event.target.id === "backingModal") {
         stopBackingRecorder(false);
@@ -1759,18 +1858,12 @@ function openTrackModal(mode, trackId = null) {
   resetBackingDraftState();
 
   els.trackForm.reset();
-  els.masterCountInFileInput.dataset.existing = "";
-  els.masterCountInFileInput.dataset.existingName = "";
   els.customCountInFileInput.dataset.existing = "";
   els.customCountInFileInput.dataset.existingName = "";
   els.customMainClickFileInput.dataset.existing = "";
   els.customMainClickFileInput.dataset.existingName = "";
   els.customStrongBeatFileInput.dataset.existing = "";
   els.customStrongBeatFileInput.dataset.existingName = "";
-  els.loopCustomMainClickFileInput.dataset.existing = "";
-  els.loopCustomMainClickFileInput.dataset.existingName = "";
-  els.loopCustomStrongBeatFileInput.dataset.existing = "";
-  els.loopCustomStrongBeatFileInput.dataset.existingName = "";
   els.sectionList.innerHTML = "";
   addSectionRow({ name: "Verse", bpm: 120, timeSignature: "4/4", bars: 8 });
   addSectionRow({ name: "Chorus", bpm: 120, timeSignature: "4/4", bars: 8 });
@@ -1778,11 +1871,34 @@ function openTrackModal(mode, trackId = null) {
   els.loopTimeSignatureInput.value = "4/4";
   els.mainClickChannelBtn.dataset.channel = "right";
   els.mainClickChannelBtn.textContent = "R";
+  els.masterMainClickChannelBtn.dataset.channel = "right";
+  els.masterMainClickChannelBtn.textContent = "R";
+  els.masterMainClickBpmInput.value = 120;
+  els.masterMainClickTimeSignatureInput.value = "4/4";
+  els.loopMainClickChannelBtn.dataset.channel = "right";
+  els.loopMainClickChannelBtn.textContent = "R";
   els.countInInput.checked = false;
+  els.masterCountInInput.checked = false;
+  els.loopCountInInput.checked = false;
   els.countInBacking1EnabledInput.checked = false;
   els.countInBacking2EnabledInput.checked = false;
+  els.masterCountInBacking1EnabledInput.checked = false;
+  els.masterCountInBacking2EnabledInput.checked = false;
+  els.loopCountInBacking1EnabledInput.checked = false;
+  els.loopCountInBacking2EnabledInput.checked = false;
+  setBackingSlotMeta("countIn:1", "", "", "left");
+  setBackingSlotMeta("countIn:2", "", "", "both");
+  setBackingSlotMeta("masterCountIn:1", "", "", "left");
+  setBackingSlotMeta("masterCountIn:2", "", "", "both");
+  setBackingSlotMeta("loopCountIn:1", "", "", "left");
+  setBackingSlotMeta("loopCountIn:2", "", "", "both");
   setBackingSlotChannel("countIn:1", "left");
   setBackingSlotChannel("countIn:2", "both");
+  setBackingSlotChannel("masterCountIn:1", "left");
+  setBackingSlotChannel("masterCountIn:2", "both");
+  setBackingSlotChannel("loopCountIn:1", "left");
+  setBackingSlotChannel("loopCountIn:2", "both");
+  clearMasterAudioDraft();
   syncCountInControls();
 
   if (mode === "edit") {
@@ -1795,13 +1911,24 @@ function openTrackModal(mode, trackId = null) {
     setTrackType(track.type);
 
     if (track.type === "master") {
+      const countIn = track.masterCountIn || {};
+      const masterMainClick = countIn.mainClick || {};
       els.mainAudioInput.dataset.existingName = track.audioName || "";
-      els.masterCountInInput.checked = !!track.masterCountIn?.enabled;
-      els.masterCountInBeatsInput.value = track.masterCountIn?.beats || 4;
-      els.masterCountInBpmInput.value = track.masterCountIn?.bpm || 120;
-      els.masterClickSampleInput.value = track.masterCountIn?.clickSample || "beep";
-      els.masterCountInFileInput.dataset.existing = track.masterCountIn?.customFileId || "";
-      els.masterCountInFileInput.dataset.existingName = track.masterCountIn?.customFileName || "";
+      els.masterCountInInput.checked = !!countIn.clickEnabled;
+      els.masterCountInBeatsInput.value = countIn.beats || 4;
+      els.masterCountInBpmInput.value = countIn.bpm || 120;
+      els.masterClickSampleInput.value = countIn.clickSample || "beep";
+      els.masterCountInBacking1EnabledInput.checked = !!countIn.backing1?.enabled;
+      els.masterCountInBacking2EnabledInput.checked = !!countIn.backing2?.enabled;
+      setBackingSlotMeta("masterCountIn:1", countIn.backing1?.fileId || "", countIn.backing1?.fileName || "", countIn.backing1?.channel || "left");
+      setBackingSlotMeta("masterCountIn:2", countIn.backing2?.fileId || "", countIn.backing2?.fileName || "", countIn.backing2?.channel || "both");
+      els.masterMainClickSampleInput.value = masterMainClick.sample || "beep";
+      els.masterMainClickChannelBtn.dataset.channel = masterMainClick.channel || "right";
+      els.masterMainClickChannelBtn.textContent = channelLabel(masterMainClick.channel || "right");
+      els.masterMainClickBpmInput.value = Number(masterMainClick.bpm) || Number(track.lockedMeta?.bpm) || 120;
+      els.masterMainClickTimeSignatureInput.value = masterMainClick.timeSignature || track.lockedMeta?.timeSignature || "4/4";
+      els.masterStrongBeatEnabledInput.checked = !!masterMainClick.strongBeatEnabled;
+      els.masterStrongBeatClickSampleInput.value = masterMainClick.strongBeatSample || "rim";
     } else if (track.type === "built") {
       const built = normalizeBuiltTrack(track.built || {});
       els.mainAudioInput.dataset.existingName = "";
@@ -1830,16 +1957,23 @@ function openTrackModal(mode, trackId = null) {
       }
       refreshSectionSlotKeys();
     } else {
+      const loop = normalizeLoopTrack(track.loop || {});
       els.mainAudioInput.dataset.existingName = "";
-      els.loopMainClickSampleInput.value = track.loop?.mainClickSample || "beep";
-      els.loopCustomMainClickFileInput.dataset.existing = track.loop?.customMainClickFileId || "";
-      els.loopCustomMainClickFileInput.dataset.existingName = track.loop?.customMainClickFileName || "";
-      els.loopStrongBeatEnabledInput.checked = !!track.loop?.strongBeatEnabled;
-      els.loopStrongBeatClickSampleInput.value = track.loop?.strongBeatClickSample || "rim";
-      els.loopCustomStrongBeatFileInput.dataset.existing = track.loop?.customStrongBeatFileId || "";
-      els.loopCustomStrongBeatFileInput.dataset.existingName = track.loop?.customStrongBeatFileName || "";
-      els.loopBpmInput.value = Number(track.loop?.bpm) || 120;
-      els.loopTimeSignatureInput.value = track.loop?.timeSignature || "4/4";
+      els.loopMainClickSampleInput.value = loop.mainClick.sample;
+      els.loopMainClickChannelBtn.dataset.channel = loop.mainClick.channel;
+      els.loopMainClickChannelBtn.textContent = channelLabel(loop.mainClick.channel);
+      els.loopStrongBeatEnabledInput.checked = !!loop.mainClick.strongBeatEnabled;
+      els.loopStrongBeatClickSampleInput.value = loop.mainClick.strongBeatSample;
+      els.loopBpmInput.value = Number(loop.bpm) || 120;
+      els.loopTimeSignatureInput.value = loop.timeSignature || "4/4";
+      els.loopCountInInput.checked = !!loop.countIn.clickEnabled;
+      els.loopCountInBeatsInput.value = loop.countIn.beats;
+      els.loopCountInBpmInput.value = loop.countIn.bpm;
+      els.loopClickSampleInput.value = loop.countIn.clickSample;
+      els.loopCountInBacking1EnabledInput.checked = !!loop.countIn.backing1.enabled;
+      els.loopCountInBacking2EnabledInput.checked = !!loop.countIn.backing2.enabled;
+      setBackingSlotMeta("loopCountIn:1", loop.countIn.backing1.fileId, loop.countIn.backing1.fileName, loop.countIn.backing1.channel);
+      setBackingSlotMeta("loopCountIn:2", loop.countIn.backing2.fileId, loop.countIn.backing2.fileName, loop.countIn.backing2.channel);
     }
   } else {
     els.mainAudioInput.dataset.existingName = "";
@@ -1879,13 +2013,15 @@ function syncFilePresenceIndicators() {
     mainAudioName ? `Current file: ${mainAudioName}` : "No file selected",
     !mainAudioName
   );
-
-  const masterCountInName = visibleFileNameFromInput(els.masterCountInFileInput);
-  setFilePresenceText(
-    els.masterCountInFileState,
-    masterCountInName ? `Current file: ${masterCountInName}` : "No file selected",
-    !masterCountInName
-  );
+  if (els.masterUploadLabel) {
+    const draftName = appState.masterAudioEditor.draftName || "";
+    const label = draftName || mainAudioName || "No audio selected";
+    els.masterUploadLabel.textContent = label;
+  }
+  if (els.masterUploadBtn) {
+    const hasMasterAudio = !!appState.masterAudioEditor.draftFile || !!mainAudioName;
+    els.masterUploadBtn.classList.toggle("has-audio", hasMasterAudio);
+  }
 
   const customCountInName = visibleFileNameFromInput(els.customCountInFileInput);
   setFilePresenceText(
@@ -1908,21 +2044,240 @@ function syncFilePresenceIndicators() {
     !customStrongBeatName
   );
 
-  const loopMainClickName = visibleFileNameFromInput(els.loopCustomMainClickFileInput);
-  setFilePresenceText(
-    els.loopCustomMainClickFileState,
-    loopMainClickName ? `Current file: ${loopMainClickName}` : "No file selected",
-    !loopMainClickName
-  );
-
-  const loopStrongBeatName = visibleFileNameFromInput(els.loopCustomStrongBeatFileInput);
-  setFilePresenceText(
-    els.loopCustomStrongBeatFileState,
-    loopStrongBeatName ? `Current file: ${loopStrongBeatName}` : "No file selected",
-    !loopStrongBeatName
-  );
-
   updateBackingButtonsFromState();
+}
+
+function setMasterPlaybackProgress(ratio) {
+  if (!els.masterPlaybackProgressFill) {
+    return;
+  }
+  const clamped = Math.max(0, Math.min(1, Number(ratio) || 0));
+  els.masterPlaybackProgressFill.style.width = `${Math.round(clamped * 100)}%`;
+}
+
+function setMasterPreviewPlayingState(playing) {
+  if (!els.masterRecordPlayBtn) {
+    return;
+  }
+  els.masterRecordPlayBtn.classList.toggle("is-playing", !!playing);
+}
+
+function setMasterRecordingState(recording) {
+  if (!els.masterRecordBtn) {
+    return;
+  }
+  els.masterRecordBtn.classList.toggle("is-recording", !!recording);
+}
+
+function stopMasterPreviewAudio(resetProgress = false) {
+  const previewAudio = appState.masterAudioEditor.previewAudio;
+  if (previewAudio) {
+    previewAudio.pause();
+    appState.masterAudioEditor.previewAudio = null;
+  }
+  setMasterPreviewPlayingState(false);
+  if (resetProgress) {
+    setMasterPlaybackProgress(0);
+  }
+}
+
+function stopMasterRecorder(resetTimer = false) {
+  const recorderState = appState.masterAudioEditor.recorder;
+  if (recorderState.mediaRecorder) {
+    try {
+      if (recorderState.mediaRecorder.state !== "inactive") {
+        recorderState.mediaRecorder.stop();
+      }
+    } catch {
+      // Ignore stop errors for already-finished recorder states.
+    }
+    recorderState.mediaRecorder = null;
+  }
+
+  if (recorderState.stream) {
+    recorderState.stream.getTracks().forEach((track) => track.stop());
+    recorderState.stream = null;
+  }
+
+  if (recorderState.timerId) {
+    clearInterval(recorderState.timerId);
+    recorderState.timerId = null;
+  }
+
+  recorderState.chunks = [];
+  recorderState.startedAt = 0;
+  setMasterRecordingState(false);
+
+  if (resetTimer && els.masterRecordTimer) {
+    els.masterRecordTimer.textContent = "00:00";
+  }
+}
+
+function clearMasterAudioDraft() {
+  stopMasterPreviewAudio(true);
+  stopMasterRecorder(true);
+  appState.masterAudioEditor.draftFile = null;
+  appState.masterAudioEditor.draftName = "";
+  appState.masterAudioEditor.clearExisting = false;
+  if (els.mainAudioInput) {
+    els.mainAudioInput.value = "";
+  }
+  syncFilePresenceIndicators();
+}
+
+function onMasterAudioFilePicked() {
+  if (els.mainAudioInput.files?.length) {
+    appState.masterAudioEditor.draftFile = null;
+    appState.masterAudioEditor.draftName = "";
+    appState.masterAudioEditor.clearExisting = false;
+  }
+  stopMasterPreviewAudio(true);
+  syncFilePresenceIndicators();
+}
+
+function onMasterAudioDelete() {
+  stopMasterPreviewAudio(true);
+  stopMasterRecorder(true);
+  appState.masterAudioEditor.draftFile = null;
+  appState.masterAudioEditor.draftName = "";
+  appState.masterAudioEditor.clearExisting = true;
+  if (els.mainAudioInput) {
+    els.mainAudioInput.value = "";
+    els.mainAudioInput.dataset.existingName = "";
+  }
+  syncFilePresenceIndicators();
+}
+
+async function onStartMasterRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === "undefined") {
+    window.alert("Recording is not supported on this device/browser.");
+    return;
+  }
+
+  stopMasterPreviewAudio(true);
+  stopMasterRecorder(true);
+
+  const recorderState = appState.masterAudioEditor.recorder;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mediaRecorder = new MediaRecorder(stream);
+    recorderState.stream = stream;
+    recorderState.mediaRecorder = mediaRecorder;
+    recorderState.chunks = [];
+    recorderState.startedAt = Date.now();
+    setMasterRecordingState(true);
+
+    mediaRecorder.addEventListener("dataavailable", (event) => {
+      if (event.data && event.data.size > 0) {
+        recorderState.chunks.push(event.data);
+      }
+    });
+
+    mediaRecorder.addEventListener("stop", () => {
+      const blob = recorderState.chunks.length
+        ? new Blob(recorderState.chunks, { type: mediaRecorder.mimeType || "audio/webm" })
+        : null;
+
+      if (blob && blob.size > 0) {
+        const ext = (blob.type || "").includes("ogg") ? "ogg" : "webm";
+        const file = new File([blob], `master-slate-${Date.now()}.${ext}`, { type: blob.type || "audio/webm" });
+        appState.masterAudioEditor.draftFile = file;
+        appState.masterAudioEditor.draftName = file.name;
+        appState.masterAudioEditor.clearExisting = false;
+        if (els.mainAudioInput) {
+          els.mainAudioInput.value = "";
+          els.mainAudioInput.dataset.existingName = "";
+        }
+      }
+
+      stopMasterRecorder(false);
+      if (els.masterRecordTimer) {
+        els.masterRecordTimer.textContent = "00:00";
+      }
+      syncFilePresenceIndicators();
+    });
+
+    recorderState.timerId = setInterval(() => {
+      if (!els.masterRecordTimer) {
+        return;
+      }
+      const elapsedSec = Math.max(0, Math.floor((Date.now() - recorderState.startedAt) / 1000));
+      const mins = String(Math.floor(elapsedSec / 60)).padStart(2, "0");
+      const secs = String(elapsedSec % 60).padStart(2, "0");
+      els.masterRecordTimer.textContent = `${mins}:${secs}`;
+    }, 200);
+
+    mediaRecorder.start();
+  } catch {
+    stopMasterRecorder(true);
+    window.alert("Could not start recording. Please check microphone permissions.");
+  }
+}
+
+function onStopMasterRecording() {
+  const recorderState = appState.masterAudioEditor.recorder;
+  if (!recorderState.mediaRecorder || recorderState.mediaRecorder.state === "inactive") {
+    return;
+  }
+  recorderState.mediaRecorder.stop();
+}
+
+async function onPlayMasterPreview() {
+  stopMasterPreviewAudio(true);
+  stopMasterRecorder(false);
+
+  const draftFile = appState.masterAudioEditor.draftFile;
+  const selectedInputFile = els.mainAudioInput.files?.[0] || null;
+  const existingTrack = getEditingTrack();
+  const existingMasterFile = existingTrack?.type === "master" ? await getFileById(existingTrack.audioFileId) : null;
+  const previewFile = draftFile || selectedInputFile || existingMasterFile;
+
+  if (!previewFile) {
+    return;
+  }
+
+  const url = URL.createObjectURL(previewFile);
+  const audio = new Audio(url);
+  appState.masterAudioEditor.previewAudio = audio;
+  setMasterPreviewPlayingState(true);
+  setMasterPlaybackProgress(0);
+
+  const updateProgress = () => {
+    if (!audio.duration || !Number.isFinite(audio.duration)) {
+      return;
+    }
+    setMasterPlaybackProgress(audio.currentTime / audio.duration);
+    if (!audio.paused) {
+      requestAnimationFrame(updateProgress);
+    }
+  };
+
+  audio.addEventListener("ended", () => {
+    URL.revokeObjectURL(url);
+    if (appState.masterAudioEditor.previewAudio === audio) {
+      appState.masterAudioEditor.previewAudio = null;
+    }
+    setMasterPreviewPlayingState(false);
+    setMasterPlaybackProgress(0);
+  });
+
+  audio.addEventListener("pause", () => {
+    if (audio.currentTime < audio.duration) {
+      setMasterPreviewPlayingState(false);
+    }
+  });
+
+  try {
+    await audio.play();
+    updateProgress();
+  } catch {
+    URL.revokeObjectURL(url);
+    if (appState.masterAudioEditor.previewAudio === audio) {
+      appState.masterAudioEditor.previewAudio = null;
+    }
+    setMasterPreviewPlayingState(false);
+    setMasterPlaybackProgress(0);
+  }
 }
 
 function setTrackType(type) {
@@ -1966,30 +2321,436 @@ function syncCountInControls() {
   const masterCountInEnabled = !!els.masterCountInInput.checked;
   els.masterCountInBeatsInput.disabled = !masterCountInEnabled;
   els.masterCountInBpmInput.disabled = !masterCountInEnabled;
-  els.masterCountInFileInput.disabled = !masterCountInEnabled;
-  const masterHasCustom = masterCountInEnabled && (els.masterCountInFileInput.files.length > 0 || !!els.masterCountInFileInput.dataset.existing);
-  els.masterClickSampleInput.disabled = !masterCountInEnabled || masterHasCustom;
+  els.masterClickSampleInput.disabled = !masterCountInEnabled;
+
+  const masterStrongBeatEnabled = !!els.masterStrongBeatEnabledInput.checked;
+  els.masterStrongBeatClickSampleInput.disabled = !masterStrongBeatEnabled;
 
   const builtCountInEnabled = !!els.countInInput.checked;
   els.clickSampleInput.disabled = !builtCountInEnabled;
 
-  const usesAutoStrongBeatBuiltIn = AUTO_STRONG_MAIN_SAMPLES.has(els.mainClickSampleInput.value || "beep");
-
   const strongBeatEnabled = !!els.strongBeatEnabledInput.checked;
-  const autoStrongBeatLocked = strongBeatEnabled && usesAutoStrongBeatBuiltIn;
-  els.strongBeatClickSampleInput.disabled = !strongBeatEnabled || autoStrongBeatLocked;
+  els.strongBeatClickSampleInput.disabled = !strongBeatEnabled;
 
-  const loopHasCustomMainClick = els.loopCustomMainClickFileInput.files.length > 0 || !!els.loopCustomMainClickFileInput.dataset.existing;
-  els.loopMainClickSampleInput.disabled = loopHasCustomMainClick;
-  const loopUsesAutoStrongBeatBuiltIn = !loopHasCustomMainClick && AUTO_STRONG_MAIN_SAMPLES.has(els.loopMainClickSampleInput.value || "beep");
+  const loopCountInEnabled = !!els.loopCountInInput.checked;
+  els.loopCountInBeatsInput.disabled = !loopCountInEnabled;
+  els.loopCountInBpmInput.disabled = !loopCountInEnabled;
+  els.loopClickSampleInput.disabled = !loopCountInEnabled;
 
   const loopStrongBeatEnabled = !!els.loopStrongBeatEnabledInput.checked;
-  els.loopStrongBeatRow.classList.toggle("hidden", !loopStrongBeatEnabled);
-  els.loopCustomStrongBeatFileInput.disabled = !loopStrongBeatEnabled;
-  const loopHasCustomStrongBeat = loopStrongBeatEnabled
-    && (els.loopCustomStrongBeatFileInput.files.length > 0 || !!els.loopCustomStrongBeatFileInput.dataset.existing);
-  const loopAutoStrongBeatLocked = loopStrongBeatEnabled && loopUsesAutoStrongBeatBuiltIn;
-  els.loopStrongBeatClickSampleInput.disabled = !loopStrongBeatEnabled || loopHasCustomStrongBeat || loopAutoStrongBeatLocked;
+  els.loopStrongBeatClickSampleInput.disabled = !loopStrongBeatEnabled;
+}
+
+function getQuickPickerField(target) {
+  if (!target || !els.trackModal || !els.trackModal.contains(target)) {
+    return null;
+  }
+  const field = target.closest(QUICK_PICKER_FIELD_SELECTOR);
+  if (!field || field.disabled) {
+    return null;
+  }
+  return field;
+}
+
+function clearQuickPickerHoldTimer() {
+  const picker = appState.quickPicker;
+  if (picker.holdTimerId) {
+    clearTimeout(picker.holdTimerId);
+    picker.holdTimerId = null;
+  }
+}
+
+function closeQuickPicker() {
+  const picker = appState.quickPicker;
+  clearQuickPickerHoldTimer();
+  picker.active = false;
+  picker.transient = false;
+  picker.field = null;
+  picker.kind = "";
+  picker.options = [];
+  picker.pointerId = null;
+  picker.pendingPointerId = null;
+  picker.pendingField = null;
+  picker.pendingStartY = 0;
+  picker.movedBeforeHold = false;
+  picker.startY = 0;
+  picker.gestureStartSelection = 0;
+  if (els.quickPickerRows) {
+    els.quickPickerRows.replaceChildren();
+  }
+  if (els.quickPickerOverlay) {
+    els.quickPickerOverlay.classList.add("hidden");
+    els.quickPickerOverlay.setAttribute("aria-hidden", "true");
+  }
+  if (els.quickPickerCard) {
+    els.quickPickerCard.classList.remove("sound-mode");
+  }
+}
+
+function isQuickPickerSoundField(field) {
+  return !!field && QUICK_PICKER_SOUND_FIELD_IDS.has(field.id || "");
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function buildQuickPickerOptionsForField(field) {
+  if (!field) {
+    return null;
+  }
+
+  if (field.tagName === "SELECT") {
+    const options = [...field.options].map((option, index) => ({
+      value: option.value,
+      label: option.textContent || option.value,
+      index
+    }));
+    const selectedIndex = clamp(field.selectedIndex >= 0 ? field.selectedIndex : 0, 0, Math.max(0, options.length - 1));
+    return {
+      kind: "select",
+      selectedIndex,
+      options
+    };
+  }
+
+  const minRaw = Number(field.min);
+  const maxRaw = Number(field.max);
+  const stepRaw = Number(field.step);
+  const min = Number.isFinite(minRaw) ? minRaw : 0;
+  const max = Number.isFinite(maxRaw) ? maxRaw : min + 100;
+  const step = Number.isFinite(stepRaw) && stepRaw > 0 ? stepRaw : 1;
+  const valueRaw = Number(field.value);
+  let selectedValue = Number.isFinite(valueRaw) ? valueRaw : min;
+  selectedValue = clamp(Math.round(selectedValue / step) * step, min, max);
+
+  return {
+    kind: "number",
+    selectedIndex: selectedValue,
+    min,
+    max,
+    step,
+    options: []
+  };
+}
+
+function applyQuickPickerSelectionToField() {
+  const picker = appState.quickPicker;
+  const field = picker.field;
+  if (!field) {
+    return;
+  }
+
+  if (picker.kind === "select") {
+    const option = picker.options[picker.selectedIndex];
+    if (!option) {
+      return;
+    }
+    if (field.value !== option.value) {
+      field.value = option.value;
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return;
+  }
+
+  const nextValue = String(picker.selectedIndex);
+  if (field.value !== nextValue) {
+    field.value = nextValue;
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
+function quickPickerVisibleRows() {
+  const picker = appState.quickPicker;
+  const rows = [];
+  if (picker.kind === "select") {
+    const total = picker.options.length;
+    const center = picker.selectedIndex;
+    for (let offset = -2; offset <= 2; offset += 1) {
+      const index = center + offset;
+      if (index < 0 || index >= total) {
+        rows.push({ empty: true, label: "", index: -1 });
+      } else {
+        rows.push({
+          empty: false,
+          label: picker.options[index].label,
+          index
+        });
+      }
+    }
+    return rows;
+  }
+
+  const { min, max, step } = picker;
+  for (let offset = -2; offset <= 2; offset += 1) {
+    const value = picker.selectedIndex + (offset * step);
+    if (value < min || value > max) {
+      rows.push({ empty: true, label: "", value: null });
+    } else {
+      rows.push({ empty: false, label: String(value), value });
+    }
+  }
+  return rows;
+}
+
+function renderQuickPickerRows() {
+  if (!els.quickPickerRows) {
+    return;
+  }
+
+  const rows = quickPickerVisibleRows();
+  const nodes = rows.map((row) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `quick-picker-row${row.empty ? " empty" : ""}`;
+    button.textContent = row.label;
+    if (!row.empty) {
+      if (typeof row.index === "number") {
+        button.dataset.index = String(row.index);
+      }
+      if (row.value !== undefined && row.value !== null) {
+        button.dataset.value = String(row.value);
+      }
+    }
+    return button;
+  });
+
+  els.quickPickerRows.replaceChildren(...nodes);
+}
+
+function openQuickPicker(field, options = {}) {
+  const model = buildQuickPickerOptionsForField(field);
+  if (!model || !els.quickPickerOverlay) {
+    return;
+  }
+
+  const picker = appState.quickPicker;
+  picker.active = true;
+  picker.transient = !!options.transient;
+  picker.field = field;
+  picker.kind = model.kind;
+  picker.options = model.options;
+  picker.selectedIndex = model.selectedIndex;
+  picker.min = model.min ?? 0;
+  picker.max = model.max ?? 0;
+  picker.step = model.step ?? 1;
+  picker.pointerId = options.pointerId ?? null;
+  picker.startY = Number(options.startY) || 0;
+  picker.gestureStartSelection = model.selectedIndex;
+
+  if (els.quickPickerCard) {
+    els.quickPickerCard.classList.toggle("sound-mode", isQuickPickerSoundField(field));
+  }
+
+  applyQuickPickerSelectionToField();
+  renderQuickPickerRows();
+
+  els.quickPickerOverlay.classList.remove("hidden");
+  els.quickPickerOverlay.setAttribute("aria-hidden", "false");
+}
+
+function setQuickPickerSelectionFromDelta(deltaSteps) {
+  const picker = appState.quickPicker;
+  if (!picker.active) {
+    return;
+  }
+
+  if (picker.kind === "select") {
+    const next = clamp(
+      picker.gestureStartSelection + deltaSteps,
+      0,
+      Math.max(0, picker.options.length - 1)
+    );
+    if (next !== picker.selectedIndex) {
+      picker.selectedIndex = next;
+      applyQuickPickerSelectionToField();
+      renderQuickPickerRows();
+    }
+    return;
+  }
+
+  const raw = picker.gestureStartSelection + (deltaSteps * picker.step);
+  const snapped = clamp(Math.round(raw / picker.step) * picker.step, picker.min, picker.max);
+  if (snapped !== picker.selectedIndex) {
+    picker.selectedIndex = snapped;
+    applyQuickPickerSelectionToField();
+    renderQuickPickerRows();
+  }
+}
+
+function nudgeQuickPickerSelection(deltaSteps) {
+  const picker = appState.quickPicker;
+  if (!picker.active || !Number.isFinite(deltaSteps) || deltaSteps === 0) {
+    return;
+  }
+
+  if (picker.kind === "select") {
+    const next = clamp(
+      picker.selectedIndex + deltaSteps,
+      0,
+      Math.max(0, picker.options.length - 1)
+    );
+    if (next !== picker.selectedIndex) {
+      picker.selectedIndex = next;
+      applyQuickPickerSelectionToField();
+      renderQuickPickerRows();
+    }
+    return;
+  }
+
+  const nextRaw = picker.selectedIndex + (deltaSteps * picker.step);
+  const snapped = clamp(Math.round(nextRaw / picker.step) * picker.step, picker.min, picker.max);
+  if (snapped !== picker.selectedIndex) {
+    picker.selectedIndex = snapped;
+    applyQuickPickerSelectionToField();
+    renderQuickPickerRows();
+  }
+}
+
+function onQuickPickerFieldPointerDown(event) {
+  const field = getQuickPickerField(event.target);
+  if (!field) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const pointerType = event.pointerType || "mouse";
+  if (pointerType !== "touch" && pointerType !== "pen") {
+    return;
+  }
+
+  closeQuickPicker();
+
+  const picker = appState.quickPicker;
+  picker.pendingPointerId = event.pointerId;
+  picker.pendingField = field;
+  picker.pendingStartY = event.clientY;
+  picker.movedBeforeHold = false;
+
+  clearQuickPickerHoldTimer();
+  picker.holdTimerId = window.setTimeout(() => {
+    if (picker.pendingPointerId !== event.pointerId || picker.movedBeforeHold || !picker.pendingField) {
+      return;
+    }
+    openQuickPicker(picker.pendingField, {
+      transient: true,
+      pointerId: event.pointerId,
+      startY: picker.pendingStartY
+    });
+  }, QUICK_PICKER_HOLD_MS);
+}
+
+function onQuickPickerFieldClick(event) {
+  const field = getQuickPickerField(event.target);
+  if (!field) {
+    return;
+  }
+
+  if (Date.now() < appState.quickPicker.suppressClickUntil) {
+    event.preventDefault();
+    return;
+  }
+
+  event.preventDefault();
+  openQuickPicker(field, { transient: false });
+}
+
+function onQuickPickerPointerMove(event) {
+  const picker = appState.quickPicker;
+  if (picker.pendingPointerId === event.pointerId && !picker.active) {
+    const distance = Math.abs(event.clientY - picker.pendingStartY);
+    if (distance > 12) {
+      picker.movedBeforeHold = true;
+      clearQuickPickerHoldTimer();
+    }
+  }
+
+  if (!picker.active || picker.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const deltaSteps = Math.round((picker.startY - event.clientY) / QUICK_PICKER_STEP_PX);
+  setQuickPickerSelectionFromDelta(deltaSteps);
+}
+
+function onQuickPickerPointerUp(event) {
+  const picker = appState.quickPicker;
+  if (picker.pendingPointerId === event.pointerId) {
+    const field = picker.pendingField;
+    const moved = picker.movedBeforeHold;
+    clearQuickPickerHoldTimer();
+    picker.pendingPointerId = null;
+    picker.pendingField = null;
+    picker.pendingStartY = 0;
+    picker.movedBeforeHold = false;
+
+    if (!picker.active && field && !moved) {
+      openQuickPicker(field, { transient: false });
+      picker.suppressClickUntil = Date.now() + 380;
+      return;
+    }
+  }
+
+  if (!picker.active || picker.pointerId !== event.pointerId) {
+    return;
+  }
+
+  if (picker.transient) {
+    closeQuickPicker();
+  }
+}
+
+function onQuickPickerPointerCancel(event) {
+  const picker = appState.quickPicker;
+  if (picker.pendingPointerId === event.pointerId) {
+    clearQuickPickerHoldTimer();
+    picker.pendingPointerId = null;
+    picker.pendingField = null;
+    picker.pendingStartY = 0;
+    picker.movedBeforeHold = false;
+  }
+
+  if (picker.active && picker.pointerId === event.pointerId) {
+    closeQuickPicker();
+  }
+}
+
+function onQuickPickerOverlayClick(event) {
+  if (!appState.quickPicker.active) {
+    return;
+  }
+
+  const picker = appState.quickPicker;
+  if (!picker.transient) {
+    const row = event.target.closest(".quick-picker-row");
+    if (row && !row.classList.contains("empty")) {
+      if (picker.kind === "select" && row.dataset.index) {
+        picker.selectedIndex = Number(row.dataset.index);
+      } else if (picker.kind === "number" && row.dataset.value) {
+        picker.selectedIndex = Number(row.dataset.value);
+      }
+      applyQuickPickerSelectionToField();
+      renderQuickPickerRows();
+      closeQuickPicker();
+      return;
+    }
+  }
+
+  if (!event.target.closest("#quickPickerCard")) {
+    closeQuickPicker();
+  }
+}
+
+function onQuickPickerWheel(event) {
+  if (!appState.quickPicker.active) {
+    return;
+  }
+
+  event.preventDefault();
+  const direction = event.deltaY > 0 ? 1 : -1;
+  nudgeQuickPickerSelection(direction);
 }
 
 function addSectionRow(section = {}) {
@@ -2124,6 +2885,58 @@ function normalizeBuiltTrack(built) {
   };
 }
 
+function normalizeLoopTrack(loop) {
+  const countInBacking1 = loop.countInConfig?.backing1 || loop.countInBacking1 || {
+    fileId: "",
+    fileName: "",
+    channel: "left",
+    enabled: false
+  };
+  const countInBacking2 = loop.countInConfig?.backing2 || loop.countInBacking2 || {
+    fileId: "",
+    fileName: "",
+    channel: "both",
+    enabled: false
+  };
+
+  return {
+    bpm: Number(loop.bpm) || 120,
+    timeSignature: loop.timeSignature || "4/4",
+    countIn: {
+      clickEnabled: loop.countInConfig?.clickEnabled ?? !!loop.countIn,
+      beats: Number(loop.countInConfig?.beats ?? loop.countInBeats) || 4,
+      bpm: Number(loop.countInConfig?.bpm ?? loop.countInBpm) || 120,
+      clickSample: loop.countInConfig?.clickSample || loop.countInClickSample || "beep",
+      backing1: {
+        fileId: countInBacking1.fileId || "",
+        fileName: countInBacking1.fileName || "",
+        channel: countInBacking1.channel || "left",
+        enabled: countInBacking1.enabled ?? !!countInBacking1.fileId
+      },
+      backing2: {
+        fileId: countInBacking2.fileId || "",
+        fileName: countInBacking2.fileName || "",
+        channel: countInBacking2.channel || "both",
+        enabled: countInBacking2.enabled ?? !!countInBacking2.fileId
+      }
+    },
+    mainClick: {
+      sample: loop.mainClick?.sample || loop.mainClickSample || "beep",
+      channel: loop.mainClick?.channel || loop.mainClickChannel || "right",
+      strongBeatEnabled: loop.mainClick?.strongBeatEnabled ?? !!loop.strongBeatEnabled,
+      strongBeatSample: loop.mainClick?.strongBeatSample || loop.strongBeatClickSample || "rim"
+    },
+    rendered: loop.rendered || null,
+    renderValidation: loop.renderValidation || null
+  };
+}
+
+function isLoopCountInWindowEnabled(loop) {
+  return !!loop.countIn.clickEnabled
+    || !!loop.countIn.backing1.enabled
+    || !!loop.countIn.backing2.enabled;
+}
+
 function isBuiltCountInWindowEnabled(normalizedBuilt) {
   return !!normalizedBuilt.countIn.clickEnabled
     || !!normalizedBuilt.countIn.backing1.enabled
@@ -2135,6 +2948,7 @@ function resetBackingDraftState() {
   appState.backingEditor.pendingFiles = {};
   appState.backingEditor.pendingNames = {};
   appState.backingEditor.pendingChannels = {};
+  appState.backingEditor.pendingDeletes = {};
   clearBackingModalDraft();
   stopBackingRecorder(true);
 }
@@ -2158,11 +2972,23 @@ function nextChannel(channel) {
 }
 
 function getBackingButtonPair(slotKey) {
+  if (slotKey === "masterCountIn:1") {
+    return { audioBtn: els.masterCountInBacking1AudioBtn, channelBtn: els.masterCountInBacking1ChannelBtn };
+  }
+  if (slotKey === "masterCountIn:2") {
+    return { audioBtn: els.masterCountInBacking2AudioBtn, channelBtn: els.masterCountInBacking2ChannelBtn };
+  }
   if (slotKey === "countIn:1") {
     return { audioBtn: els.countInBacking1AudioBtn, channelBtn: els.countInBacking1ChannelBtn };
   }
   if (slotKey === "countIn:2") {
     return { audioBtn: els.countInBacking2AudioBtn, channelBtn: els.countInBacking2ChannelBtn };
+  }
+  if (slotKey === "loopCountIn:1") {
+    return { audioBtn: els.loopCountInBacking1AudioBtn, channelBtn: els.loopCountInBacking1ChannelBtn };
+  }
+  if (slotKey === "loopCountIn:2") {
+    return { audioBtn: els.loopCountInBacking2AudioBtn, channelBtn: els.loopCountInBacking2ChannelBtn };
   }
 
   const audioBtn = els.sectionList.querySelector(`.audio-btn[data-backing-slot="${slotKey}"]`);
@@ -2189,16 +3015,21 @@ function setBackingSlotChannel(slotKey, channel) {
 
 function updateBackingButtonsFromState() {
   const allAudioButtons = [
+    els.masterCountInBacking1AudioBtn,
+    els.masterCountInBacking2AudioBtn,
     els.countInBacking1AudioBtn,
     els.countInBacking2AudioBtn,
+    els.loopCountInBacking1AudioBtn,
+    els.loopCountInBacking2AudioBtn,
     ...els.sectionList.querySelectorAll(".audio-btn[data-backing-slot]")
   ].filter(Boolean);
 
   allAudioButtons.forEach((button) => {
     const slotKey = button.dataset.backingSlot;
     const pendingFile = appState.backingEditor.pendingFiles[slotKey];
+    const pendingDelete = !!appState.backingEditor.pendingDeletes[slotKey];
     const existingId = button.dataset.existingFileId;
-    const hasAudio = !!pendingFile || !!existingId;
+    const hasAudio = !!pendingFile || (!pendingDelete && !!existingId);
     button.classList.toggle("has-audio", hasAudio);
   });
 }
@@ -2226,6 +3057,10 @@ function refreshSectionSlotKeys() {
         if (appState.backingEditor.pendingChannels[prevSlot]) {
           appState.backingEditor.pendingChannels[nextSlot] = appState.backingEditor.pendingChannels[prevSlot];
           delete appState.backingEditor.pendingChannels[prevSlot];
+        }
+        if (appState.backingEditor.pendingDeletes[prevSlot]) {
+          appState.backingEditor.pendingDeletes[nextSlot] = appState.backingEditor.pendingDeletes[prevSlot];
+          delete appState.backingEditor.pendingDeletes[prevSlot];
         }
       }
 
@@ -2255,15 +3090,63 @@ function cycleMainClickChannel() {
   els.mainClickChannelBtn.textContent = channelLabel(next);
 }
 
+function cycleChannelButton(button) {
+  if (!button) {
+    return;
+  }
+  const current = button.dataset.channel || "right";
+  const next = nextChannel(current);
+  button.dataset.channel = next;
+  button.textContent = channelLabel(next);
+}
+
 function clearBackingModalDraft() {
   appState.backingEditor.modalDraft.file = null;
   appState.backingEditor.modalDraft.name = "";
   appState.backingEditor.modalDraft.channel = "both";
+  appState.backingEditor.modalDraft.clearExisting = false;
   if (els.backingUploadLabel) {
     els.backingUploadLabel.textContent = "No audio selected";
   }
   if (els.backingUploadBtn) {
     els.backingUploadBtn.classList.remove("has-audio");
+  }
+  setBackingPlaybackProgress(0);
+  setBackingPreviewPlayingState(false);
+  setBackingRecordingState(false);
+}
+
+function setBackingPlaybackProgress(ratio) {
+  if (!els.backingPlaybackProgressFill) {
+    return;
+  }
+  const clamped = Math.max(0, Math.min(1, Number(ratio) || 0));
+  els.backingPlaybackProgressFill.style.width = `${Math.round(clamped * 100)}%`;
+}
+
+function setBackingPreviewPlayingState(playing) {
+  if (!els.backingRecordPlayBtn) {
+    return;
+  }
+  els.backingRecordPlayBtn.classList.toggle("is-playing", !!playing);
+}
+
+function setBackingRecordingState(recording) {
+  if (!els.backingRecordBtn) {
+    return;
+  }
+  els.backingRecordBtn.classList.toggle("is-recording", !!recording);
+}
+
+function stopBackingPreviewAudio(resetProgress = false) {
+  const recorderState = appState.backingEditor.recorder;
+  if (recorderState.audio) {
+    recorderState.audio.pause();
+    recorderState.audio = null;
+  }
+  setBackingPreviewPlayingState(false);
+  if (resetProgress) {
+    setBackingPlaybackProgress(0);
   }
 }
 
@@ -2276,15 +3159,19 @@ function refreshBackingModalUploadUI() {
 
   const draft = appState.backingEditor.modalDraft;
   const { audioBtn } = getBackingButtonPair(slotKey);
-  const fallbackName = audioBtn?.dataset.existingFileName || appState.backingEditor.pendingNames[slotKey] || "";
+  const pendingDelete = !!appState.backingEditor.pendingDeletes[slotKey];
+  const fallbackName = pendingDelete || draft.clearExisting
+    ? ""
+    : (audioBtn?.dataset.existingFileName || appState.backingEditor.pendingNames[slotKey] || "");
   const name = draft.name || fallbackName || "No audio selected";
-  const hasAudio = !!draft.file || !!audioBtn?.dataset.existingFileId || !!appState.backingEditor.pendingFiles[slotKey];
+  const hasAudio = !!draft.file || (!pendingDelete && !draft.clearExisting && !!audioBtn?.dataset.existingFileId) || !!appState.backingEditor.pendingFiles[slotKey];
 
   els.backingUploadLabel.textContent = name;
   els.backingUploadBtn.classList.toggle("has-audio", hasAudio);
 }
 
 function onBackingModalCancel() {
+  stopBackingPreviewAudio(true);
   stopBackingRecorder(false);
   clearBackingModalDraft();
   closeModal(els.backingModal);
@@ -2301,11 +3188,17 @@ function onBackingModalConfirm() {
   if (draft.file) {
     appState.backingEditor.pendingFiles[slotKey] = draft.file;
     appState.backingEditor.pendingNames[slotKey] = draft.name;
+    appState.backingEditor.pendingDeletes[slotKey] = false;
+  } else if (draft.clearExisting) {
+    delete appState.backingEditor.pendingFiles[slotKey];
+    delete appState.backingEditor.pendingNames[slotKey];
+    appState.backingEditor.pendingDeletes[slotKey] = true;
   }
   appState.backingEditor.pendingChannels[slotKey] = draft.channel;
   setBackingSlotChannel(slotKey, draft.channel);
   updateBackingButtonsFromState();
 
+  stopBackingPreviewAudio(true);
   stopBackingRecorder(false);
   clearBackingModalDraft();
   closeModal(els.backingModal);
@@ -2315,14 +3208,19 @@ function openBackingModal(slotKey) {
   appState.backingEditor.activeSlotKey = slotKey;
   const { channelBtn, audioBtn } = getBackingButtonPair(slotKey);
   const draft = appState.backingEditor.modalDraft;
-  draft.file = appState.backingEditor.pendingFiles[slotKey] || null;
-  draft.name = appState.backingEditor.pendingNames[slotKey] || audioBtn?.dataset.existingFileName || "";
+  const pendingDelete = !!appState.backingEditor.pendingDeletes[slotKey];
+  draft.file = pendingDelete ? null : (appState.backingEditor.pendingFiles[slotKey] || null);
+  draft.name = pendingDelete ? "" : (appState.backingEditor.pendingNames[slotKey] || audioBtn?.dataset.existingFileName || "");
   draft.channel = appState.backingEditor.pendingChannels[slotKey] || channelBtn?.dataset.channel || "both";
+  draft.clearExisting = pendingDelete;
 
   els.backingModalChannelBtn.dataset.channel = draft.channel;
   els.backingModalChannelBtn.textContent = channelLabel(draft.channel);
   els.backingRecordTimer.textContent = "00:00";
   els.backingModalFileInput.value = "";
+  setBackingPlaybackProgress(0);
+  setBackingPreviewPlayingState(false);
+  setBackingRecordingState(false);
   refreshBackingModalUploadUI();
   openModal(els.backingModal);
 }
@@ -2340,6 +3238,22 @@ async function onBackingModalUploadFile() {
 
   appState.backingEditor.modalDraft.file = file;
   appState.backingEditor.modalDraft.name = file.name;
+  appState.backingEditor.modalDraft.clearExisting = false;
+  setBackingPlaybackProgress(0);
+  refreshBackingModalUploadUI();
+}
+
+function onBackingModalDelete() {
+  const slotKey = appState.backingEditor.activeSlotKey;
+  if (!slotKey) {
+    return;
+  }
+
+  stopBackingPreviewAudio(true);
+  stopBackingRecorder(true);
+  appState.backingEditor.modalDraft.file = null;
+  appState.backingEditor.modalDraft.name = "";
+  appState.backingEditor.modalDraft.clearExisting = true;
   refreshBackingModalUploadUI();
 }
 
@@ -2361,6 +3275,7 @@ async function onStartBackingRecording() {
   }
 
   const recorderState = appState.backingEditor.recorder;
+  stopBackingPreviewAudio(true);
   stopBackingRecorder(true);
 
   try {
@@ -2370,6 +3285,7 @@ async function onStartBackingRecording() {
     recorderState.mediaRecorder = mediaRecorder;
     recorderState.chunks = [];
     recorderState.startedAt = Date.now();
+    setBackingRecordingState(true);
 
     mediaRecorder.addEventListener("dataavailable", (event) => {
       if (event.data && event.data.size > 0) {
@@ -2387,7 +3303,9 @@ async function onStartBackingRecording() {
       if (slotKey) {
         appState.backingEditor.modalDraft.file = file;
         appState.backingEditor.modalDraft.name = file.name;
+        appState.backingEditor.modalDraft.clearExisting = false;
       }
+      setBackingPlaybackProgress(0);
       refreshBackingModalUploadUI();
       recorderState.chunks = [];
     });
@@ -2422,16 +3340,14 @@ function stopBackingRecorder(resetTimer = false) {
     recorderState.mediaRecorder.stop();
   }
   recorderState.mediaRecorder = null;
+  setBackingRecordingState(false);
 
   if (recorderState.stream) {
     recorderState.stream.getTracks().forEach((track) => track.stop());
     recorderState.stream = null;
   }
 
-  if (recorderState.audio) {
-    recorderState.audio.pause();
-    recorderState.audio = null;
-  }
+  stopBackingPreviewAudio(resetTimer);
 }
 
 async function onPlayBackingPreview() {
@@ -2441,15 +3357,13 @@ async function onPlayBackingPreview() {
   }
 
   const recorderState = appState.backingEditor.recorder;
-  if (recorderState.audio) {
-    recorderState.audio.pause();
-    recorderState.audio = null;
-  }
+  stopBackingPreviewAudio(true);
 
   const pendingFile = appState.backingEditor.modalDraft.file || appState.backingEditor.pendingFiles[slotKey];
   const { audioBtn } = getBackingButtonPair(slotKey);
+  const pendingDelete = !!appState.backingEditor.pendingDeletes[slotKey] || !!appState.backingEditor.modalDraft.clearExisting;
   const existingId = audioBtn?.dataset.existingFileId || "";
-  const existingFile = existingId ? await getFileById(existingId) : null;
+  const existingFile = (!pendingDelete && existingId) ? await getFileById(existingId) : null;
   const fileToPlay = pendingFile || existingFile;
   if (!fileToPlay) {
     return;
@@ -2458,30 +3372,81 @@ async function onPlayBackingPreview() {
   const url = URL.createObjectURL(fileToPlay);
   const audio = new Audio(url);
   recorderState.audio = audio;
-  audio.addEventListener("ended", () => {
+  setBackingPreviewPlayingState(true);
+
+  const updateProgress = () => {
+    if (recorderState.audio !== audio) {
+      return;
+    }
+    if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
+      setBackingPlaybackProgress(0);
+      return;
+    }
+    setBackingPlaybackProgress(audio.currentTime / audio.duration);
+  };
+
+  const cleanup = (completed = false) => {
+    if (completed) {
+      setBackingPlaybackProgress(1);
+    }
     URL.revokeObjectURL(url);
+    setBackingPreviewPlayingState(false);
     if (recorderState.audio === audio) {
       recorderState.audio = null;
     }
+  };
+
+  audio.addEventListener("loadedmetadata", updateProgress);
+  audio.addEventListener("timeupdate", updateProgress);
+  audio.addEventListener("ended", () => {
+    cleanup(true);
   });
-  await audio.play();
+  audio.addEventListener("pause", () => {
+    if (audio.ended) {
+      return;
+    }
+    cleanup(false);
+  });
+  audio.addEventListener("error", () => {
+    setBackingPlaybackProgress(0);
+    cleanup(false);
+  });
+
+  try {
+    await audio.play();
+    updateProgress();
+  } catch {
+    setBackingPlaybackProgress(0);
+    URL.revokeObjectURL(url);
+    setBackingPreviewPlayingState(false);
+    if (recorderState.audio === audio) {
+      recorderState.audio = null;
+    }
+  }
 }
 
 async function persistBackingSlot(slotKey, fallback = null, options = {}) {
   options.throwIfCancelled?.();
   const pendingFile = appState.backingEditor.pendingFiles[slotKey] || null;
+  const pendingDelete = !!appState.backingEditor.pendingDeletes[slotKey];
   const { audioBtn, channelBtn } = getBackingButtonPair(slotKey);
 
-  let fileId = audioBtn?.dataset.existingFileId || fallback?.fileId || "";
-  let fileName = audioBtn?.dataset.existingFileName || fallback?.fileName || "";
+  let fileId = pendingDelete ? "" : (audioBtn?.dataset.existingFileId || fallback?.fileId || "");
+  let fileName = pendingDelete ? "" : (audioBtn?.dataset.existingFileName || fallback?.fileName || "");
+  const previousFileId = audioBtn?.dataset.existingFileId || fallback?.fileId || "";
+
+  if (pendingDelete && previousFileId) {
+    await deleteFileFromDb(previousFileId);
+    options.throwIfCancelled?.();
+  }
 
   if (pendingFile) {
-    const previousFileId = fileId;
+    const replacingFileId = fileId;
     fileId = await saveFileToDb(pendingFile);
     options.throwIfCancelled?.();
     fileName = pendingFile.name;
-    if (previousFileId && previousFileId !== fileId) {
-      await deleteFileFromDb(previousFileId);
+    if (replacingFileId && replacingFileId !== fileId) {
+      await deleteFileFromDb(replacingFileId);
       options.throwIfCancelled?.();
     }
   }
@@ -2568,8 +3533,10 @@ async function buildMasterTrack(displayName, options = {}) {
   options.onProgress?.(12, "Preparing master audio...");
 
   const editingTrack = getEditingTrack();
-  const selectedFile = els.mainAudioInput.files[0];
-  const selectedAudio = selectedFile || (editingTrack && editingTrack.type === "master" ? await getFileById(editingTrack.audioFileId) : null);
+  const clearExistingAudio = !!appState.masterAudioEditor.clearExisting;
+  const selectedFile = appState.masterAudioEditor.draftFile || els.mainAudioInput.files[0];
+  const selectedAudio = selectedFile
+    || (editingTrack && editingTrack.type === "master" && !clearExistingAudio ? await getFileById(editingTrack.audioFileId) : null);
 
   if (!selectedAudio) {
     window.alert("Master Slate requires an audio file.");
@@ -2581,21 +3548,28 @@ async function buildMasterTrack(displayName, options = {}) {
     : editingTrack.audioFileId;
   options.throwIfCancelled?.();
 
+  if (selectedFile && editingTrack?.type === "master" && editingTrack.audioFileId && editingTrack.audioFileId !== audioFileId) {
+    await deleteFileFromDb(editingTrack.audioFileId);
+    options.throwIfCancelled?.();
+  }
+
   options.onProgress?.(34, "Reading audio metadata...");
   const meta = await getAudioMetadata(selectedAudio);
   options.throwIfCancelled?.();
 
-  let masterCountInFileId = editingTrack?.masterCountIn?.customFileId || null;
-  let masterCountInFileName = editingTrack?.masterCountIn?.customFileName || "";
-
-  if (els.masterCountInFileInput.files[0]) {
-    options.onProgress?.(52, "Saving count-in audio...");
-    masterCountInFileId = await saveFileToDb(els.masterCountInFileInput.files[0]);
-    masterCountInFileName = els.masterCountInFileInput.files[0].name;
-    options.throwIfCancelled?.();
-  }
+  const previousCountIn = editingTrack?.masterCountIn || {};
+  options.onProgress?.(52, "Saving count-in backing audio...");
+  const countInBacking1 = await persistBackingSlot("masterCountIn:1", previousCountIn.backing1 || null, options);
+  const countInBacking2 = await persistBackingSlot("masterCountIn:2", previousCountIn.backing2 || null, options);
+  options.throwIfCancelled?.();
+  countInBacking1.enabled = !!els.masterCountInBacking1EnabledInput.checked;
+  countInBacking2.enabled = !!els.masterCountInBacking2EnabledInput.checked;
 
   options.onProgress?.(76, "Building track data...");
+
+  const masterClickEnabled = !!els.masterCountInInput.checked;
+  const masterMainClickChannel = els.masterMainClickChannelBtn.dataset.channel || "right";
+  const masterStrongBeatEnabled = !!els.masterStrongBeatEnabledInput.checked;
 
   return {
     id: crypto.randomUUID(),
@@ -2609,12 +3583,21 @@ async function buildMasterTrack(displayName, options = {}) {
       lengthSec: meta.durationSec
     },
     masterCountIn: {
-      enabled: !!els.masterCountInInput.checked,
+      enabled: masterClickEnabled || !!countInBacking1.enabled || !!countInBacking2.enabled,
+      clickEnabled: masterClickEnabled,
       beats: Number(els.masterCountInBeatsInput.value) || 4,
       bpm: Number(els.masterCountInBpmInput.value) || 120,
       clickSample: els.masterClickSampleInput.value,
-      customFileId: masterCountInFileId,
-      customFileName: masterCountInFileName
+      backing1: countInBacking1,
+      backing2: countInBacking2,
+      mainClick: {
+        sample: els.masterMainClickSampleInput.value || "beep",
+        channel: masterMainClickChannel,
+        bpm: Number(els.masterMainClickBpmInput.value) || 120,
+        timeSignature: els.masterMainClickTimeSignatureInput.value || "4/4",
+        strongBeatEnabled: masterStrongBeatEnabled,
+        strongBeatSample: els.masterStrongBeatClickSampleInput.value || "rim"
+      }
     }
   };
 }
@@ -2717,43 +3700,66 @@ async function buildLoopTrack(displayName, options = {}) {
   options.onProgress?.(12, "Preparing loop settings...");
 
   const editingTrack = getEditingTrack();
+  const previousLoop = normalizeLoopTrack(editingTrack?.loop || {});
+  options.onProgress?.(36, "Saving count-in backing audio...");
+  const countInBacking1 = await persistBackingSlot("loopCountIn:1", previousLoop.countIn.backing1 || null, options);
+  const countInBacking2 = await persistBackingSlot("loopCountIn:2", previousLoop.countIn.backing2 || null, options);
+  options.throwIfCancelled?.();
+  countInBacking1.enabled = !!els.loopCountInBacking1EnabledInput.checked;
+  countInBacking2.enabled = !!els.loopCountInBacking2EnabledInput.checked;
 
-  let customMainClickFileId = editingTrack?.loop?.customMainClickFileId || null;
-  let customMainClickFileName = editingTrack?.loop?.customMainClickFileName || "";
-
-  if (els.loopCustomMainClickFileInput.files[0]) {
-    options.onProgress?.(30, "Saving custom click audio...");
-    customMainClickFileId = await saveFileToDb(els.loopCustomMainClickFileInput.files[0]);
-    customMainClickFileName = els.loopCustomMainClickFileInput.files[0].name;
-    options.throwIfCancelled?.();
-  }
-
-  let customStrongBeatFileId = editingTrack?.loop?.customStrongBeatFileId || null;
-  let customStrongBeatFileName = editingTrack?.loop?.customStrongBeatFileName || "";
-
-  if (els.loopCustomStrongBeatFileInput.files[0]) {
-    options.onProgress?.(42, "Saving strong beat audio...");
-    customStrongBeatFileId = await saveFileToDb(els.loopCustomStrongBeatFileInput.files[0]);
-    customStrongBeatFileName = els.loopCustomStrongBeatFileInput.files[0].name;
-    options.throwIfCancelled?.();
-  }
+  const countInClickEnabled = !!els.loopCountInInput.checked;
+  const loopMainClickChannel = els.loopMainClickChannelBtn.dataset.channel || "right";
+  const loopStrongBeatEnabled = !!els.loopStrongBeatEnabledInput.checked;
 
   const draftLoop = {
     bpm: Number(els.loopBpmInput.value) || 120,
     timeSignature: els.loopTimeSignatureInput.value || "4/4",
+    countIn: countInClickEnabled,
+    countInBeats: Number(els.loopCountInBeatsInput.value) || 4,
+    countInBpm: Number(els.loopCountInBpmInput.value) || 120,
+    countInClickSample: els.loopClickSampleInput.value || "beep",
+    countInBacking1,
+    countInBacking2,
+    countInConfig: {
+      clickEnabled: countInClickEnabled,
+      beats: Number(els.loopCountInBeatsInput.value) || 4,
+      bpm: Number(els.loopCountInBpmInput.value) || 120,
+      clickSample: els.loopClickSampleInput.value || "beep",
+      backing1: countInBacking1,
+      backing2: countInBacking2
+    },
     mainClickSample: els.loopMainClickSampleInput.value || "beep",
-    customMainClickFileId,
-    customMainClickFileName,
-    strongBeatEnabled: !!els.loopStrongBeatEnabledInput.checked,
+    mainClickChannel: loopMainClickChannel,
+    strongBeatEnabled: loopStrongBeatEnabled,
     strongBeatClickSample: els.loopStrongBeatClickSampleInput.value || "rim",
-    customStrongBeatFileId,
-    customStrongBeatFileName,
+    mainClick: {
+      sample: els.loopMainClickSampleInput.value || "beep",
+      channel: loopMainClickChannel,
+      strongBeatEnabled: loopStrongBeatEnabled,
+      strongBeatSample: els.loopStrongBeatClickSampleInput.value || "rim"
+    },
+    customMainClickFileId: null,
+    customMainClickFileName: "",
+    customStrongBeatFileId: null,
+    customStrongBeatFileName: "",
     rendered: editingTrack?.type === "loop" ? editingTrack.loop?.rendered : null
   };
 
   options.onProgress?.(60, "Rendering loop audio...");
   const renderResult = await renderAndPersistLoopTrackAssets(draftLoop, options);
   options.throwIfCancelled?.();
+
+  if (editingTrack?.type === "loop") {
+    if (editingTrack.loop?.customMainClickFileId) {
+      await deleteFileFromDb(editingTrack.loop.customMainClickFileId);
+      options.throwIfCancelled?.();
+    }
+    if (editingTrack.loop?.customStrongBeatFileId) {
+      await deleteFileFromDb(editingTrack.loop.customStrongBeatFileId);
+      options.throwIfCancelled?.();
+    }
+  }
 
   return {
     id: crypto.randomUUID(),
@@ -2818,12 +3824,14 @@ async function playMasterTrack(track, sessionId) {
 
   let cancelled = false;
   const timers = [];
+  const activeAudios = [];
   let countInContext = null;
   let audio = null;
   let audioUrl = null;
   let diagDumped = false;
   const countInConfig = track.masterCountIn || {};
-  const countInBeats = countInConfig.enabled ? (Number(countInConfig.beats) || 4) : 0;
+  const countInClickEnabled = countInConfig.clickEnabled ?? !!countInConfig.enabled;
+  const countInBeats = countInClickEnabled ? (Number(countInConfig.beats) || 4) : 0;
   const countInBpm = Number(countInConfig.bpm) || 120;
   const durationSec = Number(track.lockedMeta?.lengthSec) || totalTrackSeconds(track);
   let playbackVisualStarted = false;
@@ -2839,6 +3847,11 @@ async function playMasterTrack(track, sessionId) {
       URL.revokeObjectURL(audioUrl);
       audioUrl = null;
     }
+    activeAudios.forEach(({ audio: extraAudio, url }) => {
+      extraAudio.pause();
+      extraAudio.currentTime = 0;
+      URL.revokeObjectURL(url);
+    });
     if (countInContext && countInContext.state !== "closed") {
       countInContext.close();
     }
@@ -2853,51 +3866,94 @@ async function playMasterTrack(track, sessionId) {
   appState.playingHandle = { stop };
   render();
 
-  if (countInConfig.enabled) {
+  const masterCountInBacking1 = countInConfig.backing1 || {};
+  const masterCountInBacking2 = countInConfig.backing2 || {};
+  const countInWindowEnabled = countInClickEnabled || !!masterCountInBacking1.enabled || !!masterCountInBacking2.enabled;
+
+  if (countInWindowEnabled) {
     countInContext = new (window.AudioContext || window.webkitAudioContext)();
     if (countInContext.state === "suspended") {
       await countInContext.resume();
     }
 
-    let countInBuffer = null;
-    if (countInConfig.customFileId) {
-      const countInClip = await getFileById(countInConfig.customFileId);
-      if (countInClip) {
-        countInBuffer = await decodeFileToAudioBuffer(countInContext, countInClip);
+    const countInSample = countInConfig.clickSample || "beep";
+    const builtInClickBuffers = await loadBuiltInSampleBuffersForContext(countInContext, [countInSample]);
+    const countInResolvedBuffer = builtInClickBuffers.get(countInSample) || null;
+
+    const beatDuration = 60 / (Number(countInConfig.bpm) || 120);
+    const beatTotal = countInClickEnabled ? (Number(countInConfig.beats) || 4) : 0;
+    const timelineStartAt = countInContext.currentTime + (PLAY_SYNC_PREP_MS / 1000);
+    const firstBeatAt = countInClickEnabled ? timelineStartAt + (COUNT_IN_PREROLL_MS / 1000) : null;
+    const countInClock = makeContextClock(countInContext);
+
+    if (countInClickEnabled && firstBeatAt !== null) {
+      for (let beat = 0; beat < beatTotal; beat += 1) {
+        const when = firstBeatAt + beat * beatDuration;
+        scheduleClickCueAt(
+          countInContext,
+          countInResolvedBuffer,
+          countInSample,
+          0,
+          when,
+          {
+            sessionId,
+            label: `master count-in beat ${beat + 1}`,
+            clock: countInClock
+          }
+        );
       }
     }
 
-    const countInSample = countInConfig.clickSample || "beep";
-    const builtInClickBuffers = await loadBuiltInSampleBuffersForContext(countInContext, [countInSample]);
-    const countInResolvedBuffer = countInBuffer || builtInClickBuffers.get(countInSample) || null;
-
-    const beatDuration = 60 / (Number(countInConfig.bpm) || 120);
-    const beatTotal = Number(countInConfig.beats) || 4;
-    const firstBeatAt = countInContext.currentTime + ((COUNT_IN_PREROLL_MS + PLAY_SYNC_PREP_MS) / 1000);
-    const countInClock = makeContextClock(countInContext);
-
-    for (let beat = 0; beat < beatTotal; beat += 1) {
-      const when = firstBeatAt + beat * beatDuration;
-      scheduleClickCueAt(
-        countInContext,
-        countInResolvedBuffer,
-        countInSample,
-        0,
-        when,
-        {
-          sessionId,
-          label: `master count-in beat ${beat + 1}`,
-          clock: countInClock
-        }
-      );
+    const backingStartAt = countInClickEnabled && firstBeatAt !== null ? firstBeatAt : timelineStartAt;
+    const countInLaneRuntime = [];
+    for (const lane of [masterCountInBacking1, masterCountInBacking2]) {
+      if (!lane.enabled || !lane.fileId) {
+        continue;
+      }
+      const laneFile = await getFileById(lane.fileId);
+      if (!laneFile) {
+        continue;
+      }
+      const laneMeta = await getAudioMetadata(laneFile);
+      countInLaneRuntime.push({
+        lane,
+        file: laneFile,
+        durationSec: Math.max(0, Number(laneMeta.durationSec) || 0)
+      });
     }
 
-    const countInEndsAt = firstBeatAt + beatTotal * beatDuration;
+    const clickCountInDurationSec = countInClickEnabled && beatTotal > 0
+      ? (COUNT_IN_PREROLL_MS / 1000) + beatTotal * beatDuration
+      : 0;
+    const backingCountInDurationSec = countInLaneRuntime.reduce((maxSec, entry) => Math.max(maxSec, entry.durationSec), 0);
+    const countInDurationSec = Math.max(clickCountInDurationSec, backingCountInDurationSec);
+
+    for (const entry of countInLaneRuntime) {
+      const delayMs = Math.max(0, (backingStartAt - countInContext.currentTime) * 1000);
+      const timer = setTimeout(() => {
+        if (cancelled || !countInContext || countInContext.state === "closed") {
+          return;
+        }
+        const url = URL.createObjectURL(entry.file);
+        const laneAudio = new Audio(url);
+        const source = countInContext.createMediaElementSource(laneAudio);
+        const panner = countInContext.createStereoPanner();
+        panner.pan.value = panValue(entry.lane.channel || "both");
+        source.connect(panner).connect(countInContext.destination);
+        laneAudio.play();
+        activeAudios.push({ audio: laneAudio, url });
+      }, delayMs);
+      timers.push(timer);
+    }
+
+    const countInEndsAt = timelineStartAt + countInDurationSec;
     startPlaybackVisual(track, sessionId, {
-      countInBeats,
+      countInBeats: countInClickEnabled ? countInBeats : 0,
       countInBpm,
       trackDurationSec: durationSec,
-      countInStartWallMs: expectedWallTimeMs(countInClock, firstBeatAt),
+      countInStartWallMs: countInDurationSec > 0
+        ? expectedWallTimeMs(countInClock, countInClickEnabled && firstBeatAt !== null ? firstBeatAt : timelineStartAt)
+        : null,
       trackStartWallMs: expectedWallTimeMs(countInClock, countInEndsAt)
     });
     playbackVisualStarted = true;
@@ -3301,6 +4357,7 @@ async function playLoopTrack(track, sessionId) {
 
 async function playLoopTrackRendered(track, sessionId) {
   const rendered = track.loop?.rendered || {};
+  const loopConfig = normalizeLoopTrack(track.loop || {});
   const loopFile = rendered.loopFileId ? await getFileById(rendered.loopFileId) : null;
   if (!loopFile) {
     return false;
@@ -3313,6 +4370,7 @@ async function playLoopTrackRendered(track, sessionId) {
 
   let source = null;
   let cancelled = false;
+  const activeAudios = [];
 
   const stop = () => {
     cancelled = true;
@@ -3325,6 +4383,11 @@ async function playLoopTrackRendered(track, sessionId) {
       source.disconnect();
       source = null;
     }
+    activeAudios.forEach(({ audio, url }) => {
+      audio.pause();
+      audio.currentTime = 0;
+      URL.revokeObjectURL(url);
+    });
     if (context.state !== "closed") {
       context.close();
     }
@@ -3345,11 +4408,83 @@ async function playLoopTrackRendered(track, sessionId) {
       return true;
     }
 
-    await waitMs(PLAY_SYNC_PREP_MS);
-    if (cancelled) {
-      stop();
-      return true;
+    const bpm = Math.max(20, Number(loopConfig.bpm) || 120);
+    const countInClickEnabled = !!loopConfig.countIn.clickEnabled;
+    const countInWindowEnabled = isLoopCountInWindowEnabled(loopConfig);
+    const countInBeats = countInClickEnabled && countInWindowEnabled ? (Number(loopConfig.countIn.beats) || 4) : 0;
+    const countInBpm = Number(loopConfig.countIn.bpm) || 120;
+    const countInBeatDurationSec = 60 / countInBpm;
+    const countInSample = loopConfig.countIn.clickSample || "beep";
+    const builtInBuffers = await loadBuiltInSampleBuffersForContext(context, [countInSample]);
+
+    const timelineStartAt = context.currentTime + (PLAY_SYNC_PREP_MS / 1000);
+    const firstCountBeatAt = countInClickEnabled && countInBeats > 0
+      ? timelineStartAt + (COUNT_IN_PREROLL_MS / 1000)
+      : null;
+    const clickPan = panValue(loopConfig.mainClick.channel || "right");
+
+    const countInBackingRuntime = [];
+    for (const lane of [loopConfig.countIn.backing1, loopConfig.countIn.backing2]) {
+      if (!lane.enabled || !lane.fileId) {
+        continue;
+      }
+      const laneFile = await getFileById(lane.fileId);
+      if (!laneFile) {
+        continue;
+      }
+      const laneMeta = await getAudioMetadata(laneFile);
+      countInBackingRuntime.push({
+        lane,
+        file: laneFile,
+        durationSec: Math.max(0, Number(laneMeta.durationSec) || 0)
+      });
     }
+
+    if (countInClickEnabled && firstCountBeatAt !== null) {
+      const contextClock = makeContextClock(context);
+      for (let beat = 0; beat < countInBeats; beat += 1) {
+        const when = firstCountBeatAt + beat * countInBeatDurationSec;
+        scheduleClickCueAt(
+          context,
+          builtInBuffers.get(countInSample) || null,
+          countInSample,
+          clickPan,
+          when,
+          {
+            sessionId,
+            label: `loop rendered count-in beat ${beat + 1}`,
+            clock: contextClock
+          }
+        );
+      }
+    }
+
+    const countInBackingStartAt = countInClickEnabled && firstCountBeatAt !== null ? firstCountBeatAt : timelineStartAt;
+    for (const laneEntry of countInBackingRuntime) {
+      const delayMs = Math.max(0, (countInBackingStartAt - context.currentTime) * 1000);
+      setTimeout(() => {
+        if (cancelled || context.state === "closed") {
+          return;
+        }
+        const url = URL.createObjectURL(laneEntry.file);
+        const laneAudio = new Audio(url);
+        const sourceNode = context.createMediaElementSource(laneAudio);
+        const panner = context.createStereoPanner();
+        panner.pan.value = panValue(laneEntry.lane.channel || "both");
+        sourceNode.connect(panner).connect(context.destination);
+        laneAudio.play();
+        activeAudios.push({ audio: laneAudio, url });
+      }, delayMs);
+    }
+
+    const clickCountInDurationSec = countInBeats > 0
+      ? (COUNT_IN_PREROLL_MS / 1000) + countInBeats * countInBeatDurationSec
+      : 0;
+    const backingCountInDurationSec = countInBackingRuntime.reduce((maxSec, lane) => Math.max(maxSec, lane.durationSec), 0);
+    const countInDurationSec = countInWindowEnabled
+      ? Math.max(clickCountInDurationSec, backingCountInDurationSec)
+      : 0;
+    const loopStartAt = timelineStartAt + countInDurationSec;
 
     source = context.createBufferSource();
     source.buffer = loopBuffer;
@@ -3357,7 +4492,7 @@ async function playLoopTrackRendered(track, sessionId) {
     source.loopStart = 0;
     source.loopEnd = Math.max(0.05, Number(rendered.loopDurationSec) || loopBuffer.duration);
     source.connect(context.destination);
-    source.start(context.currentTime);
+    source.start(loopStartAt);
     return true;
   } catch {
     stop();
@@ -3371,41 +4506,99 @@ async function playLoopTrackLive(track, sessionId) {
     await context.resume();
   }
 
-  const loopConfig = track.loop || {};
+  const loopConfig = normalizeLoopTrack(track.loop || {});
   const bpm = Math.max(20, Number(loopConfig.bpm) || 120);
   const beatDurationSec = 60 / bpm;
   const beatsPerBar = beatsPerBarFromSignature(loopConfig.timeSignature);
-  const mainSample = loopConfig.mainClickSample || "beep";
+  const mainSample = loopConfig.mainClick.sample || "beep";
   const strongSpec = resolveStrongBeatSpec(
     mainSample,
-    loopConfig.strongBeatClickSample || "rim",
-    !!loopConfig.customStrongBeatFileId
+    loopConfig.mainClick.strongBeatSample || "rim",
+    false
   );
+  const clickPan = panValue(loopConfig.mainClick.channel || "right");
+  const countInClickEnabled = !!loopConfig.countIn.clickEnabled;
+  const countInWindowEnabled = isLoopCountInWindowEnabled(loopConfig);
+  const countInBpm = Number(loopConfig.countIn.bpm) || 120;
+  const countInBeats = countInClickEnabled && countInWindowEnabled ? (Number(loopConfig.countIn.beats) || 4) : 0;
+  const countInBeatDurationSec = 60 / countInBpm;
 
-  const builtInBuffers = await loadBuiltInSampleBuffersForContext(context, [mainSample, strongSpec.sample]);
-
-  let customMainClickBuffer = null;
-  if (loopConfig.customMainClickFileId) {
-    const customMainFile = await getFileById(loopConfig.customMainClickFileId);
-    if (customMainFile) {
-      customMainClickBuffer = await decodeFileToAudioBuffer(context, customMainFile);
-    }
-  }
-
-  let customStrongBeatBuffer = null;
-  if (loopConfig.customStrongBeatFileId) {
-    const customStrongFile = await getFileById(loopConfig.customStrongBeatFileId);
-    if (customStrongFile) {
-      customStrongBeatBuffer = await decodeFileToAudioBuffer(context, customStrongFile);
-    }
-  }
+  const countInSample = loopConfig.countIn.clickSample || "beep";
+  const builtInBuffers = await loadBuiltInSampleBuffersForContext(context, [mainSample, strongSpec.sample, countInSample]);
 
   let cancelled = false;
+  const activeAudios = [];
   const lookaheadSec = 0.2;
   const scheduleIntervalMs = 60;
   const contextClock = makeContextClock(context);
-  let nextBeatAt = context.currentTime + (PLAY_SYNC_PREP_MS / 1000);
+  const timelineStartAt = context.currentTime + (PLAY_SYNC_PREP_MS / 1000);
+  const firstCountBeatAt = countInClickEnabled && countInBeats > 0
+    ? timelineStartAt + (COUNT_IN_PREROLL_MS / 1000)
+    : null;
+
+  const countInBackingRuntime = [];
+  for (const lane of [loopConfig.countIn.backing1, loopConfig.countIn.backing2]) {
+    if (!lane.enabled || !lane.fileId) {
+      continue;
+    }
+    const laneFile = await getFileById(lane.fileId);
+    if (!laneFile) {
+      continue;
+    }
+    const laneMeta = await getAudioMetadata(laneFile);
+    countInBackingRuntime.push({
+      lane,
+      file: laneFile,
+      durationSec: Math.max(0, Number(laneMeta.durationSec) || 0)
+    });
+  }
+
+  const clickCountInDurationSec = countInBeats > 0
+    ? (COUNT_IN_PREROLL_MS / 1000) + countInBeats * countInBeatDurationSec
+    : 0;
+  const backingCountInDurationSec = countInBackingRuntime.reduce((maxSec, lane) => Math.max(maxSec, lane.durationSec), 0);
+  const countInDurationSec = countInWindowEnabled
+    ? Math.max(clickCountInDurationSec, backingCountInDurationSec)
+    : 0;
+
+  let nextBeatAt = timelineStartAt + countInDurationSec;
   let beatIndex = 0;
+
+  if (countInClickEnabled && firstCountBeatAt !== null) {
+    for (let beat = 0; beat < countInBeats; beat += 1) {
+      const when = firstCountBeatAt + beat * countInBeatDurationSec;
+      scheduleClickCueAt(
+        context,
+        builtInBuffers.get(countInSample) || null,
+        countInSample,
+        clickPan,
+        when,
+        {
+          sessionId,
+          label: `loop count-in beat ${beat + 1}`,
+          clock: contextClock
+        }
+      );
+    }
+  }
+
+  const countInBackingStartAt = countInClickEnabled && firstCountBeatAt !== null ? firstCountBeatAt : timelineStartAt;
+  for (const laneEntry of countInBackingRuntime) {
+    const delayMs = Math.max(0, (countInBackingStartAt - context.currentTime) * 1000);
+    setTimeout(() => {
+      if (cancelled || context.state === "closed") {
+        return;
+      }
+      const url = URL.createObjectURL(laneEntry.file);
+      const laneAudio = new Audio(url);
+      const source = context.createMediaElementSource(laneAudio);
+      const panner = context.createStereoPanner();
+      panner.pan.value = panValue(laneEntry.lane.channel || "both");
+      source.connect(panner).connect(context.destination);
+      laneAudio.play();
+      activeAudios.push({ audio: laneAudio, url });
+    }, delayMs);
+  }
 
   const scheduleBeats = () => {
     if (cancelled) {
@@ -3414,13 +4607,13 @@ async function playLoopTrackLive(track, sessionId) {
 
     while (nextBeatAt < context.currentTime + lookaheadSec) {
       const barBeatIndex = beatIndex % beatsPerBar;
-      const isStrongBeat = !!loopConfig.strongBeatEnabled && barBeatIndex === 0;
+      const isStrongBeat = !!loopConfig.mainClick.strongBeatEnabled && barBeatIndex === 0;
       if (isStrongBeat) {
         scheduleClickCueAt(
           context,
-          customStrongBeatBuffer || builtInBuffers.get(strongSpec.sample) || null,
+          builtInBuffers.get(strongSpec.sample) || null,
           strongSpec.sample,
-          0,
+          clickPan,
           nextBeatAt,
           {
             sessionId,
@@ -3432,9 +4625,9 @@ async function playLoopTrackLive(track, sessionId) {
       } else {
         scheduleClickCueAt(
           context,
-          customMainClickBuffer || builtInBuffers.get(mainSample) || null,
+          builtInBuffers.get(mainSample) || null,
           mainSample,
-          0,
+          clickPan,
           nextBeatAt,
           {
             sessionId,
@@ -3455,6 +4648,11 @@ async function playLoopTrackLive(track, sessionId) {
   const stop = () => {
     cancelled = true;
     clearInterval(intervalId);
+    activeAudios.forEach(({ audio, url }) => {
+      audio.pause();
+      audio.currentTime = 0;
+      URL.revokeObjectURL(url);
+    });
     if (context.state !== "closed") {
       context.close();
     }
@@ -3668,6 +4866,14 @@ function confirmDeleteTrack(trackId) {
       await deleteFileFromDb(track.audioFileId);
     }
 
+    if (track.type === "master" && track.masterCountIn?.backing1?.fileId) {
+      await deleteFileFromDb(track.masterCountIn.backing1.fileId);
+    }
+
+    if (track.type === "master" && track.masterCountIn?.backing2?.fileId) {
+      await deleteFileFromDb(track.masterCountIn.backing2.fileId);
+    }
+
     if (track.type === "master" && track.masterCountIn?.customFileId) {
       await deleteFileFromDb(track.masterCountIn.customFileId);
     }
@@ -3714,6 +4920,14 @@ function confirmDeleteTrack(trackId) {
           await deleteFileFromDb(section.backing2.fileId);
         }
       }
+    }
+
+    if (track.type === "loop" && track.loop.countInConfig?.backing1?.fileId) {
+      await deleteFileFromDb(track.loop.countInConfig.backing1.fileId);
+    }
+
+    if (track.type === "loop" && track.loop.countInConfig?.backing2?.fileId) {
+      await deleteFileFromDb(track.loop.countInConfig.backing2.fileId);
     }
 
     if (track.type === "loop" && track.loop.customMainClickFileId) {

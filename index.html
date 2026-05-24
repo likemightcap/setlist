@@ -83,47 +83,155 @@
 
         <fieldset class="master-only mode-block">
           <legend>Master Slate Options</legend>
+          <div class="modal-section-block">
+            <h3>Count-In</h3>
+            <div class="count-in-layout">
+              <div class="count-in-click-panel mini-panel">
+                <label class="switch-field" for="masterCountInInput">
+                  <span>Click</span>
+                  <span class="switch-wrap">
+                    <input id="masterCountInInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="count-in-click-grid">
+                  <label class="compact-field">
+                    Beats
+                    <input id="masterCountInBeatsInput" type="number" min="1" max="32" value="4">
+                  </label>
+                  <label class="compact-field">
+                    BPM
+                    <input id="masterCountInBpmInput" type="number" min="20" max="320" value="120">
+                  </label>
+                  <label>
+                    Click Sound
+                    <select id="masterClickSampleInput">
+                      <option value="beep">Digital Beep</option>
+                      <option value="wood">Wood Block</option>
+                      <option value="wood2">Wood Block 2</option>
+                      <option value="cowbell">Cowbell</option>
+                      <option value="klank">Klank</option>
+                      <option value="shaker">Shaker</option>
+                      <option value="rim">Rim Click</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
 
-          <label>
-            Main Audio File
-            <input id="mainAudioInput" name="mainAudio" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*">
-            <div id="mainAudioFileState" class="file-presence empty">No file selected</div>
-          </label>
+              <div class="mini-panel backing-lane-panel">
+                <label class="switch-field" for="masterCountInBacking1EnabledInput">
+                  <span>Backing 1</span>
+                  <span class="switch-wrap">
+                    <input id="masterCountInBacking1EnabledInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="backing-lane-actions">
+                  <button id="masterCountInBacking1AudioBtn" class="audio-btn" data-backing-slot="masterCountIn:1" type="button" aria-label="Configure master count-in backing 1 audio">
+                    <img src="assets/audio-icon.png" alt="Audio">
+                  </button>
+                  <button id="masterCountInBacking1ChannelBtn" class="channel-cycle-btn" data-backing-slot="masterCountIn:1" type="button">L</button>
+                </div>
+              </div>
 
-          <label class="checkbox-row">
-            <input id="masterCountInInput" type="checkbox">
-            <span>Count-in enabled</span>
-          </label>
+              <div class="mini-panel backing-lane-panel">
+                <label class="switch-field" for="masterCountInBacking2EnabledInput">
+                  <span>Backing 2</span>
+                  <span class="switch-wrap">
+                    <input id="masterCountInBacking2EnabledInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="backing-lane-actions">
+                  <button id="masterCountInBacking2AudioBtn" class="audio-btn" data-backing-slot="masterCountIn:2" type="button" aria-label="Configure master count-in backing 2 audio">
+                    <img src="assets/audio-icon.png" alt="Audio">
+                  </button>
+                  <button id="masterCountInBacking2ChannelBtn" class="channel-cycle-btn" data-backing-slot="masterCountIn:2" type="button">B</button>
+                </div>
+              </div>
+            </div>
+          </div>
 
-          <div id="masterCountInFields" class="count-in-panel">
-            <label>
-              Count-in beats
-              <input id="masterCountInBeatsInput" type="number" min="1" max="32" value="4" disabled>
-            </label>
+          <div class="modal-section-block">
+            <h3>Main Click</h3>
+            <div class="main-click-layout">
+              <div class="channel-selector-wrap">
+                <button id="masterMainClickChannelBtn" class="channel-cycle-btn main-channel-btn" type="button">R</button>
+              </div>
+              <label>
+                Click Sound
+                <select id="masterMainClickSampleInput">
+                  <option value="beep">Digital Beep</option>
+                  <option value="wood">Wood Block</option>
+                  <option value="wood2">Wood Block 2</option>
+                  <option value="cowbell">Cowbell</option>
+                  <option value="klank">Klank</option>
+                  <option value="shaker">Shaker</option>
+                  <option value="rim">Rim Click</option>
+                </select>
+              </label>
+              <label class="switch-field main-strong-switch" for="masterStrongBeatEnabledInput">
+                <span>Strong Beat</span>
+                <span class="switch-wrap">
+                  <input id="masterStrongBeatEnabledInput" type="checkbox">
+                  <span class="switch-pill"></span>
+                </span>
+              </label>
+              <label>
+                Strong Beat Click Sound
+                <select id="masterStrongBeatClickSampleInput">
+                  <option value="beep">Digital Beep</option>
+                  <option value="wood">Wood Block</option>
+                  <option value="wood2">Wood Block 2</option>
+                  <option value="cowbell">Cowbell</option>
+                  <option value="klank">Klank</option>
+                  <option value="shaker">Shaker</option>
+                  <option value="rim">Rim Click</option>
+                </select>
+              </label>
+            </div>
+            <div class="count-in-click-grid loop-timing-grid">
+              <label class="compact-field">
+                BPM
+                <input id="masterMainClickBpmInput" type="number" min="20" max="320" value="120">
+              </label>
 
-            <label>
-              Count-in BPM
-              <input id="masterCountInBpmInput" type="number" min="20" max="320" value="120" disabled>
-            </label>
+              <label>
+                Time Signature
+                <select id="masterMainClickTimeSignatureInput">
+                  <option value="4/4">4/4</option>
+                  <option value="3/4">3/4</option>
+                  <option value="6/8">6/8</option>
+                  <option value="7/8">7/8</option>
+                </select>
+              </label>
+            </div>
+          </div>
 
-            <label>
-              Click Sample
-              <select id="masterClickSampleInput" disabled>
-                <option value="beep">Digital Beep</option>
-                <option value="wood">Wood Block</option>
-                <option value="wood2">Wood Block 2</option>
-                <option value="cowbell">Cowbell</option>
-                <option value="klank">Klank</option>
-                <option value="shaker">Shaker</option>
-                <option value="rim">Rim Click</option>
-              </select>
-            </label>
+          <div class="modal-section-block">
+            <h3>Master Audio</h3>
+            <div class="backing-recorder-controls">
+              <button id="masterRecordBtn" class="record-btn" type="button" aria-label="Start recording"></button>
+              <button id="masterRecordPlayBtn" class="record-play-btn" type="button" aria-label="Play recording"></button>
+              <button id="masterRecordStopBtn" class="record-stop-btn" type="button" aria-label="Stop recording"></button>
+            </div>
+            <div id="masterRecordTimer" class="backing-record-timer">00:00</div>
 
-            <label>
-              Custom Count-in Sound
-              <input id="masterCountInFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*" disabled>
-              <div id="masterCountInFileState" class="file-presence empty">No file selected</div>
-            </label>
+            <h3 class="backing-upload-title">Upload</h3>
+            <div class="backing-upload-row">
+              <button id="masterUploadBtn" class="backing-upload-btn" type="button" aria-label="Upload master audio">
+                <img src="assets/audio-icon.png" alt="Audio">
+                <span id="masterUploadLabel">No audio selected</span>
+              </button>
+              <button id="masterDeleteBtn" class="backing-delete-btn" type="button" aria-label="Delete master audio">
+                <img src="assets/delete-icon.png" alt="Delete">
+              </button>
+            </div>
+            <div class="backing-playback-bar" aria-hidden="true">
+              <div id="masterPlaybackProgressFill" class="backing-playback-fill"></div>
+            </div>
+            <input id="mainAudioInput" name="mainAudio" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*" hidden>
+            <div id="mainAudioFileState" class="file-presence empty" hidden>No file selected</div>
           </div>
         </fieldset>
 
@@ -275,68 +383,133 @@
         <fieldset class="loop-only mode-block" style="display:none;">
           <legend>Loop Track Options</legend>
 
-          <div class="click-settings-row">
-            <label>
-              Main Click Sound
-              <select id="loopMainClickSampleInput">
-                <option value="beep">Digital Beep</option>
-                <option value="wood">Wood Block</option>
-                <option value="wood2">Wood Block 2</option>
-                <option value="cowbell">Cowbell</option>
-                <option value="klank">Klank</option>
-                <option value="shaker">Shaker</option>
-                <option value="rim">Rim Click</option>
-              </select>
-            </label>
+          <div class="modal-section-block">
+            <h3>Count-In</h3>
+            <div class="count-in-layout">
+              <div class="count-in-click-panel mini-panel">
+                <label class="switch-field" for="loopCountInInput">
+                  <span>Click</span>
+                  <span class="switch-wrap">
+                    <input id="loopCountInInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="count-in-click-grid">
+                  <label class="compact-field">
+                    Beats
+                    <input id="loopCountInBeatsInput" type="number" min="1" max="32" value="4">
+                  </label>
+                  <label class="compact-field">
+                    BPM
+                    <input id="loopCountInBpmInput" type="number" min="20" max="320" value="120">
+                  </label>
+                  <label>
+                    Click Sound
+                    <select id="loopClickSampleInput">
+                      <option value="beep">Digital Beep</option>
+                      <option value="wood">Wood Block</option>
+                      <option value="wood2">Wood Block 2</option>
+                      <option value="cowbell">Cowbell</option>
+                      <option value="klank">Klank</option>
+                      <option value="shaker">Shaker</option>
+                      <option value="rim">Rim Click</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
 
-            <label>
-              Custom Click Sound
-              <input id="loopCustomMainClickFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*">
-              <div id="loopCustomMainClickFileState" class="file-presence empty">No file selected</div>
-            </label>
+              <div class="mini-panel backing-lane-panel">
+                <label class="switch-field" for="loopCountInBacking1EnabledInput">
+                  <span>Backing 1</span>
+                  <span class="switch-wrap">
+                    <input id="loopCountInBacking1EnabledInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="backing-lane-actions">
+                  <button id="loopCountInBacking1AudioBtn" class="audio-btn" data-backing-slot="loopCountIn:1" type="button" aria-label="Configure loop count-in backing 1 audio">
+                    <img src="assets/audio-icon.png" alt="Audio">
+                  </button>
+                  <button id="loopCountInBacking1ChannelBtn" class="channel-cycle-btn" data-backing-slot="loopCountIn:1" type="button">L</button>
+                </div>
+              </div>
 
-            <label class="checkbox-row click-checkbox-cell">
-              <input id="loopStrongBeatEnabledInput" type="checkbox">
-              <span>Strong beat on the 1</span>
-            </label>
+              <div class="mini-panel backing-lane-panel">
+                <label class="switch-field" for="loopCountInBacking2EnabledInput">
+                  <span>Backing 2</span>
+                  <span class="switch-wrap">
+                    <input id="loopCountInBacking2EnabledInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="backing-lane-actions">
+                  <button id="loopCountInBacking2AudioBtn" class="audio-btn" data-backing-slot="loopCountIn:2" type="button" aria-label="Configure loop count-in backing 2 audio">
+                    <img src="assets/audio-icon.png" alt="Audio">
+                  </button>
+                  <button id="loopCountInBacking2ChannelBtn" class="channel-cycle-btn" data-backing-slot="loopCountIn:2" type="button">B</button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div id="loopStrongBeatRow" class="click-settings-row strong-beat-row hidden">
-            <label>
-              Strong Beat Click Sound
-              <select id="loopStrongBeatClickSampleInput">
-                <option value="beep">Digital Beep</option>
-                <option value="wood">Wood Block</option>
-                <option value="wood2">Wood Block 2</option>
-                <option value="cowbell">Cowbell</option>
-                <option value="klank">Klank</option>
-                <option value="shaker">Shaker</option>
-                <option value="rim">Rim Click</option>
-              </select>
-            </label>
-
-            <label>
-              Custom Strong Beat Sound
-              <input id="loopCustomStrongBeatFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*">
-              <div id="loopCustomStrongBeatFileState" class="file-presence empty">No file selected</div>
-            </label>
+          <div class="modal-section-block">
+            <h3>Main Click</h3>
+            <div class="main-click-layout">
+              <div class="channel-selector-wrap">
+                <button id="loopMainClickChannelBtn" class="channel-cycle-btn main-channel-btn" type="button">R</button>
+              </div>
+              <label>
+                Click Sound
+                <select id="loopMainClickSampleInput">
+                  <option value="beep">Digital Beep</option>
+                  <option value="wood">Wood Block</option>
+                  <option value="wood2">Wood Block 2</option>
+                  <option value="cowbell">Cowbell</option>
+                  <option value="klank">Klank</option>
+                  <option value="shaker">Shaker</option>
+                  <option value="rim">Rim Click</option>
+                </select>
+              </label>
+              <label class="switch-field main-strong-switch" for="loopStrongBeatEnabledInput">
+                <span>Strong Beat</span>
+                <span class="switch-wrap">
+                  <input id="loopStrongBeatEnabledInput" type="checkbox">
+                  <span class="switch-pill"></span>
+                </span>
+              </label>
+              <label>
+                Strong Beat Click Sound
+                <select id="loopStrongBeatClickSampleInput">
+                  <option value="beep">Digital Beep</option>
+                  <option value="wood">Wood Block</option>
+                  <option value="wood2">Wood Block 2</option>
+                  <option value="cowbell">Cowbell</option>
+                  <option value="klank">Klank</option>
+                  <option value="shaker">Shaker</option>
+                  <option value="rim">Rim Click</option>
+                </select>
+              </label>
+            </div>
           </div>
 
-          <div class="click-settings-row">
-            <label>
-              BPM
-              <input id="loopBpmInput" type="number" min="20" max="320" value="120">
-            </label>
+          <div class="modal-section-block">
+            <h3>Loop Timing</h3>
+            <div class="count-in-click-grid loop-timing-grid">
+              <label class="compact-field">
+                BPM
+                <input id="loopBpmInput" type="number" min="20" max="320" value="120">
+              </label>
 
-            <label>
-              Time Signature
-              <select id="loopTimeSignatureInput">
-                <option value="4/4">4/4</option>
-                <option value="3/4">3/4</option>
-                <option value="6/8">6/8</option>
-                <option value="7/8">7/8</option>
-              </select>
-            </label>
+              <label>
+                Time Signature
+                <select id="loopTimeSignatureInput">
+                  <option value="4/4">4/4</option>
+                  <option value="3/4">3/4</option>
+                  <option value="6/8">6/8</option>
+                  <option value="7/8">7/8</option>
+                </select>
+              </label>
+            </div>
           </div>
         </fieldset>
 
@@ -446,7 +619,13 @@
           <img src="assets/audio-icon.png" alt="Audio">
           <span id="backingUploadLabel">No audio selected</span>
         </button>
+        <button id="backingDeleteBtn" class="backing-delete-btn" type="button" aria-label="Delete backing audio">
+          <img src="assets/delete-icon.png" alt="Delete">
+        </button>
         <button id="backingModalChannelBtn" class="channel-cycle-btn main-channel-btn" type="button">L</button>
+      </div>
+      <div class="backing-playback-bar" aria-hidden="true">
+        <div id="backingPlaybackProgressFill" class="backing-playback-fill"></div>
       </div>
       <div class="backing-modal-actions">
         <button id="backingModalCancelBtn" class="action-secondary" type="button">Cancel</button>
@@ -457,6 +636,13 @@
   </div>
 
   <div id="contextMenu" class="context-menu hidden"></div>
+
+  <div id="quickPickerOverlay" class="quick-picker-overlay hidden" aria-hidden="true">
+    <div id="quickPickerCard" class="quick-picker-card" role="dialog" aria-modal="true" aria-label="Value picker">
+      <div id="quickPickerRows" class="quick-picker-rows"></div>
+      <div class="quick-picker-highlight" aria-hidden="true"></div>
+    </div>
+  </div>
 
   <script src="app.js" defer></script>
 </body>
