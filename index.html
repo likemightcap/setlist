@@ -56,7 +56,7 @@
   <div id="trackModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="trackModalTitle">
     <div class="modal-card wide">
       <div class="modal-head">
-        <h2 id="trackModalTitle">Add Track</h2>
+        <h2 id="trackModalTitle">Add/Edit Track</h2>
         <button class="icon-btn close-modal" data-close="trackModal" aria-label="Close">X</button>
       </div>
 
@@ -67,10 +67,19 @@
       </div>
 
       <form id="trackForm" class="form-grid">
-        <label>
-          Track Name
-          <input id="trackNameInput" name="trackName" type="text" required maxlength="64" placeholder="Track name">
-        </label>
+        <div class="track-name-panel">
+          <label class="track-name-field">
+            Track Name
+            <input id="trackNameInput" name="trackName" type="text" required maxlength="64" placeholder="Track name">
+          </label>
+          <label class="build-split-only switch-field" for="splitOutputInput">
+            <span>Split Output</span>
+            <span class="switch-wrap">
+              <input id="splitOutputInput" type="checkbox" checked>
+              <span class="switch-pill"></span>
+            </span>
+          </label>
+        </div>
 
         <fieldset class="master-only mode-block">
           <legend>Master Slate Options</legend>
@@ -121,117 +130,116 @@
         <fieldset class="built-only mode-block">
           <legend>Build Track Options</legend>
 
-          <div class="count-inline-row">
-            <label class="checkbox-row">
-              <input id="countInInput" type="checkbox" checked>
-              <span>Count-in enabled</span>
-            </label>
+          <div class="modal-section-block">
+            <h3>Count-In</h3>
+            <div class="count-in-layout">
+              <div class="count-in-click-panel mini-panel">
+                <label class="switch-field" for="countInInput">
+                  <span>Click</span>
+                  <span class="switch-wrap">
+                    <input id="countInInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="count-in-click-grid">
+                  <label class="compact-field">
+                    Beats
+                    <input id="countInBeatsInput" type="number" min="1" max="32" value="4">
+                  </label>
+                  <label class="compact-field">
+                    BPM
+                    <input id="countInBpmInput" type="number" min="20" max="320" value="120">
+                  </label>
+                  <label>
+                    Click Sound
+                    <select id="clickSampleInput">
+                      <option value="beep">Digital Beep</option>
+                      <option value="wood">Wood Block</option>
+                      <option value="wood2">Wood Block 2</option>
+                      <option value="cowbell">Cowbell</option>
+                      <option value="klank">Klank</option>
+                      <option value="shaker">Shaker</option>
+                      <option value="rim">Rim Click</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
 
-            <label class="compact-field">
-              Count-in beats
-              <input id="countInBeatsInput" type="number" min="1" max="32" value="4">
-            </label>
+              <div class="mini-panel backing-lane-panel">
+                <label class="switch-field" for="countInBacking1EnabledInput">
+                  <span>Backing 1</span>
+                  <span class="switch-wrap">
+                    <input id="countInBacking1EnabledInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="backing-lane-actions">
+                  <button id="countInBacking1AudioBtn" class="audio-btn" data-backing-slot="countIn:1" type="button" aria-label="Configure count-in backing 1 audio">
+                    <img src="assets/audio-icon.png" alt="Audio">
+                  </button>
+                  <button id="countInBacking1ChannelBtn" class="channel-cycle-btn" data-backing-slot="countIn:1" type="button">L</button>
+                </div>
+              </div>
+
+              <div class="mini-panel backing-lane-panel">
+                <label class="switch-field" for="countInBacking2EnabledInput">
+                  <span>Backing 2</span>
+                  <span class="switch-wrap">
+                    <input id="countInBacking2EnabledInput" type="checkbox">
+                    <span class="switch-pill"></span>
+                  </span>
+                </label>
+                <div class="backing-lane-actions">
+                  <button id="countInBacking2AudioBtn" class="audio-btn" data-backing-slot="countIn:2" type="button" aria-label="Configure count-in backing 2 audio">
+                    <img src="assets/audio-icon.png" alt="Audio">
+                  </button>
+                  <button id="countInBacking2ChannelBtn" class="channel-cycle-btn" data-backing-slot="countIn:2" type="button">B</button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div class="click-settings-row count-in-sound-row">
-            <label>
-              Count-in BPM
-              <input id="countInBpmInput" type="number" min="20" max="320" value="120">
-            </label>
-
-            <label>
-              Custom Count-in Sound
-              <input id="customCountInFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*">
-              <div id="customCountInFileState" class="file-presence empty">No file selected</div>
-            </label>
-
-            <label>
-              Count-in Click Sound
-              <select id="clickSampleInput">
-                <option value="beep">Digital Beep</option>
-                <option value="wood">Wood Block</option>
-                <option value="wood2">Wood Block 2</option>
-                <option value="cowbell">Cowbell</option>
-                <option value="klank">Klank</option>
-                <option value="shaker">Shaker</option>
-                <option value="rim">Rim Click</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="click-settings-row">
-            <label>
-              Main Click Sound
-              <select id="mainClickSampleInput">
-                <option value="beep">Digital Beep</option>
-                <option value="wood">Wood Block</option>
-                <option value="wood2">Wood Block 2</option>
-                <option value="cowbell">Cowbell</option>
-                <option value="klank">Klank</option>
-                <option value="shaker">Shaker</option>
-                <option value="rim">Rim Click</option>
-              </select>
-            </label>
-
-            <label>
-              Custom Click Sound
-              <input id="customMainClickFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*">
-              <div id="customMainClickFileState" class="file-presence empty">No file selected</div>
-            </label>
-
-            <label class="checkbox-row click-checkbox-cell">
-              <input id="strongBeatEnabledInput" type="checkbox">
-              <span>Strong beat on the 1</span>
-            </label>
-          </div>
-
-          <div id="strongBeatRow" class="click-settings-row strong-beat-row hidden">
-            <label>
-              Strong Beat Click Sound
-              <select id="strongBeatClickSampleInput">
-                <option value="beep">Digital Beep</option>
-                <option value="wood">Wood Block</option>
-                <option value="wood2">Wood Block 2</option>
-                <option value="cowbell">Cowbell</option>
-                <option value="klank">Klank</option>
-                <option value="shaker">Shaker</option>
-                <option value="rim">Rim Click</option>
-              </select>
-            </label>
-
-            <label>
-              Custom Strong Beat Sound
-              <input id="customStrongBeatFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*">
-              <div id="customStrongBeatFileState" class="file-presence empty">No file selected</div>
-            </label>
-          </div>
-
-          <div class="split-panel">
-            <label class="checkbox-row">
-              <input id="splitOutputInput" type="checkbox">
-              <span>Enable split output (click/backing)</span>
-            </label>
-
-            <div class="split-grid">
+          <div class="modal-section-block">
+            <h3>Main Click</h3>
+            <div class="main-click-layout">
+              <div class="channel-selector-wrap">
+                <button id="mainClickChannelBtn" class="channel-cycle-btn main-channel-btn" type="button">R</button>
+              </div>
               <label>
-                Click Channel
-                <select id="clickChannelInput">
-                  <option value="left">Left</option>
-                  <option value="right">Right</option>
+                Click Sound
+                <select id="mainClickSampleInput">
+                  <option value="beep">Digital Beep</option>
+                  <option value="wood">Wood Block</option>
+                  <option value="wood2">Wood Block 2</option>
+                  <option value="cowbell">Cowbell</option>
+                  <option value="klank">Klank</option>
+                  <option value="shaker">Shaker</option>
+                  <option value="rim">Rim Click</option>
                 </select>
               </label>
-
+              <label class="switch-field main-strong-switch" for="strongBeatEnabledInput">
+                <span>Strong Beat</span>
+                <span class="switch-wrap">
+                  <input id="strongBeatEnabledInput" type="checkbox">
+                  <span class="switch-pill"></span>
+                </span>
+              </label>
               <label>
-                Backing Channel
-                <select id="backingChannelInput">
-                  <option value="right">Right</option>
-                  <option value="left">Left</option>
+                Strong Beat Click Sound
+                <select id="strongBeatClickSampleInput">
+                  <option value="beep">Digital Beep</option>
+                  <option value="wood">Wood Block</option>
+                  <option value="wood2">Wood Block 2</option>
+                  <option value="cowbell">Cowbell</option>
+                  <option value="klank">Klank</option>
+                  <option value="shaker">Shaker</option>
+                  <option value="rim">Rim Click</option>
                 </select>
               </label>
             </div>
           </div>
 
-          <div class="sections-panel">
+          <div class="sections-panel modal-section-block">
             <div class="sections-head">
               <h3>Sections</h3>
               <button type="button" id="addSectionBtn" class="mini-btn">+ Add Section</button>
@@ -239,13 +247,29 @@
             <div class="section-grid-head" aria-hidden="true">
               <span>Section Name</span>
               <span>BPM</span>
-              <span>Time Signature</span>
+              <span>Meter</span>
               <span>Bars</span>
-              <span>Section Backing</span>
-              <span></span>
+              <span>Backing 1</span>
+              <span>Backing 2</span>
             </div>
             <div id="sectionList"></div>
           </div>
+
+          <input id="customCountInFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*" hidden>
+          <div id="customCountInFileState" class="file-presence empty" hidden>No file selected</div>
+          <input id="customMainClickFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*" hidden>
+          <div id="customMainClickFileState" class="file-presence empty" hidden>No file selected</div>
+          <input id="customStrongBeatFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*" hidden>
+          <div id="customStrongBeatFileState" class="file-presence empty" hidden>No file selected</div>
+          <div id="strongBeatRow" class="hidden" aria-hidden="true"></div>
+          <select id="clickChannelInput" hidden>
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+          <select id="backingChannelInput" hidden>
+            <option value="right">Right</option>
+            <option value="left">Left</option>
+          </select>
         </fieldset>
 
         <fieldset class="loop-only mode-block" style="display:none;">
@@ -324,6 +348,19 @@
     </div>
   </div>
 
+  <div id="trackSaveModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="trackSaveTitle" aria-describedby="trackSaveStatus">
+    <div class="modal-card small track-save-modal-card">
+      <h2 id="trackSaveTitle">Saving Track</h2>
+      <p id="trackSaveStatus" class="track-save-status">Preparing save...</p>
+      <div class="track-save-progress" aria-hidden="true">
+        <div id="trackSaveProgressFill" class="track-save-progress-fill" style="width: 0%;"></div>
+      </div>
+      <div class="form-actions track-save-actions">
+        <button id="trackSaveCancelBtn" class="action-secondary" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="playModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="playTitle">
     <div class="modal-card">
       <div class="modal-head">
@@ -386,6 +423,36 @@
         <button id="confirmCancelBtn" class="action-secondary">Cancel</button>
         <button id="confirmOkBtn" class="action-danger">Delete</button>
       </div>
+    </div>
+  </div>
+
+  <div id="backingModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="backingModalTitle">
+    <div class="modal-card small backing-modal-card">
+      <div class="modal-head">
+        <h2 id="backingModalTitle">Record</h2>
+        <button class="icon-btn close-modal" data-close="backingModal" aria-label="Close">X</button>
+      </div>
+
+      <div class="backing-recorder-controls">
+        <button id="backingRecordBtn" class="record-btn" type="button" aria-label="Start recording"></button>
+        <button id="backingRecordPlayBtn" class="record-play-btn" type="button" aria-label="Play recording"></button>
+        <button id="backingRecordStopBtn" class="record-stop-btn" type="button" aria-label="Stop recording"></button>
+      </div>
+      <div id="backingRecordTimer" class="backing-record-timer">00:00</div>
+
+      <h3 class="backing-upload-title">Upload</h3>
+      <div class="backing-upload-row">
+        <button id="backingUploadBtn" class="backing-upload-btn" type="button" aria-label="Upload backing audio">
+          <img src="assets/audio-icon.png" alt="Audio">
+          <span id="backingUploadLabel">No audio selected</span>
+        </button>
+        <button id="backingModalChannelBtn" class="channel-cycle-btn main-channel-btn" type="button">L</button>
+      </div>
+      <div class="backing-modal-actions">
+        <button id="backingModalCancelBtn" class="action-secondary" type="button">Cancel</button>
+        <button id="backingModalOkBtn" class="action-primary" type="button">Okay</button>
+      </div>
+      <input id="backingModalFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*" hidden>
     </div>
   </div>
 
