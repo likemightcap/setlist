@@ -153,7 +153,15 @@
           </div>
 
           <div class="modal-section-block">
-            <h3>Main Click</h3>
+            <div class="master-main-click-head">
+              <h3>Main Click</h3>
+              <label class="switch-field master-main-click-toggle" for="masterMainClickEnabledInput" aria-label="Enable main click">
+                <span class="switch-wrap">
+                  <input id="masterMainClickEnabledInput" type="checkbox">
+                  <span class="switch-pill"></span>
+                </span>
+              </label>
+            </div>
             <div class="main-click-layout">
               <div class="channel-selector-wrap">
                 <button id="masterMainClickChannelBtn" class="channel-cycle-btn main-channel-btn" type="button">R</button>
@@ -190,14 +198,14 @@
                 </select>
               </label>
             </div>
-            <div class="count-in-click-grid loop-timing-grid">
+            <div class="count-in-click-grid loop-timing-grid timing-grid master-main-click-timing-grid">
               <label class="compact-field">
                 BPM
                 <input id="masterMainClickBpmInput" type="number" min="20" max="320" value="120">
               </label>
 
               <label>
-                Time Signature
+                Meter
                 <select id="masterMainClickTimeSignatureInput">
                   <option value="4/4">4/4</option>
                   <option value="3/4">3/4</option>
@@ -226,6 +234,7 @@
               <button id="masterDeleteBtn" class="backing-delete-btn" type="button" aria-label="Delete master audio">
                 <img src="assets/delete-icon.png" alt="Delete">
               </button>
+              <button id="masterAudioChannelBtn" class="channel-cycle-btn main-channel-btn" type="button">L</button>
             </div>
             <div class="backing-playback-bar" aria-hidden="true">
               <div id="masterPlaybackProgressFill" class="backing-playback-fill"></div>
@@ -494,14 +503,14 @@
 
           <div class="modal-section-block">
             <h3>Loop Timing</h3>
-            <div class="count-in-click-grid loop-timing-grid">
+            <div class="count-in-click-grid loop-timing-grid timing-grid loop-main-timing-grid">
               <label class="compact-field">
                 BPM
                 <input id="loopBpmInput" type="number" min="20" max="320" value="120">
               </label>
 
               <label>
-                Time Signature
+                Meter
                 <select id="loopTimeSignatureInput">
                   <option value="4/4">4/4</option>
                   <option value="3/4">3/4</option>
@@ -584,7 +593,37 @@
         </label>
       </div>
 
+      <div class="load-source-actions">
+        <button id="importSetBtn" class="action-secondary" type="button">Import From Device File</button>
+      </div>
+
       <div id="savedSetList" class="saved-set-list"></div>
+      <input id="importSetFileInput" type="file" accept=".json,application/json" hidden>
+    </div>
+  </div>
+
+  <div id="saveModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="saveTitle">
+    <div class="modal-card small save-set-modal-card">
+      <div class="modal-head">
+        <h2 id="saveTitle">Save Set</h2>
+        <button class="icon-btn close-modal" data-close="saveModal" aria-label="Close">X</button>
+      </div>
+
+      <form id="saveSetForm" class="form-grid">
+        <label>
+          Set Name
+          <input id="saveSetNameInput" type="text" maxlength="64" placeholder="Set name" required>
+        </label>
+
+        <div class="save-set-options">
+          <button id="saveToDeviceBtn" class="action-secondary" type="button">Save To Device File</button>
+        </div>
+
+        <div class="form-actions">
+          <button id="saveSetCancelBtn" class="action-secondary" type="button" data-close="saveModal">Cancel</button>
+          <button id="saveSetConfirmBtn" class="action-primary" type="submit">Save To App Library</button>
+        </div>
+      </form>
     </div>
   </div>
 

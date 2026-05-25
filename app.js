@@ -41,6 +41,8 @@ const QUICK_PICKER_SOUND_FIELD_IDS = new Set([
 ]);
 const QUICK_PICKER_HOLD_MS = 220;
 const QUICK_PICKER_STEP_PX = 44;
+const TRACK_DRAG_HOLD_MS = 300;
+const TRACK_DRAG_CANCEL_TOLERANCE_PX = 18;
 
 const appState = {
   currentSet: newEmptySet(),
@@ -194,6 +196,12 @@ const els = {
   trackSaveCancelBtn: document.getElementById("trackSaveCancelBtn"),
   playModal: document.getElementById("playModal"),
   loadModal: document.getElementById("loadModal"),
+  saveModal: document.getElementById("saveModal"),
+  saveSetForm: document.getElementById("saveSetForm"),
+  saveSetNameInput: document.getElementById("saveSetNameInput"),
+  saveSetCancelBtn: document.getElementById("saveSetCancelBtn"),
+  saveSetConfirmBtn: document.getElementById("saveSetConfirmBtn"),
+  saveToDeviceBtn: document.getElementById("saveToDeviceBtn"),
   confirmModal: document.getElementById("confirmModal"),
   contextMenu: document.getElementById("contextMenu"),
   typeMasterBtn: document.getElementById("typeMasterBtn"),
@@ -214,6 +222,7 @@ const els = {
   masterCountInBacking1ChannelBtn: document.getElementById("masterCountInBacking1ChannelBtn"),
   masterCountInBacking2ChannelBtn: document.getElementById("masterCountInBacking2ChannelBtn"),
   masterMainClickChannelBtn: document.getElementById("masterMainClickChannelBtn"),
+  masterMainClickEnabledInput: document.getElementById("masterMainClickEnabledInput"),
   masterMainClickSampleInput: document.getElementById("masterMainClickSampleInput"),
   masterMainClickBpmInput: document.getElementById("masterMainClickBpmInput"),
   masterMainClickTimeSignatureInput: document.getElementById("masterMainClickTimeSignatureInput"),
@@ -225,6 +234,7 @@ const els = {
   masterRecordTimer: document.getElementById("masterRecordTimer"),
   masterUploadBtn: document.getElementById("masterUploadBtn"),
   masterDeleteBtn: document.getElementById("masterDeleteBtn"),
+  masterAudioChannelBtn: document.getElementById("masterAudioChannelBtn"),
   masterUploadLabel: document.getElementById("masterUploadLabel"),
   masterPlaybackProgressFill: document.getElementById("masterPlaybackProgressFill"),
   countInInput: document.getElementById("countInInput"),
@@ -273,6 +283,8 @@ const els = {
   playTrackMeta: document.getElementById("playTrackMeta"),
   setSearchInput: document.getElementById("setSearchInput"),
   setSortInput: document.getElementById("setSortInput"),
+  importSetBtn: document.getElementById("importSetBtn"),
+  importSetFileInput: document.getElementById("importSetFileInput"),
   savedSetList: document.getElementById("savedSetList"),
   confirmMessage: document.getElementById("confirmMessage"),
   confirmCancelBtn: document.getElementById("confirmCancelBtn"),
@@ -500,6 +512,7 @@ function wireEvents() {
   bind(els.masterCountInInput, "change", syncCountInControls);
   bind(els.masterCountInBacking1EnabledInput, "change", syncCountInControls);
   bind(els.masterCountInBacking2EnabledInput, "change", syncCountInControls);
+  bind(els.masterMainClickEnabledInput, "change", syncCountInControls);
   bind(els.masterStrongBeatEnabledInput, "change", syncCountInControls);
   bind(els.countInInput, "change", syncCountInControls);
   bind(els.countInBacking1EnabledInput, "change", syncCountInControls);
@@ -530,6 +543,7 @@ function wireEvents() {
   bind(els.mainClickSampleInput, "change", syncCountInControls);
   bind(els.mainClickChannelBtn, "click", () => cycleMainClickChannel());
   bind(els.masterMainClickChannelBtn, "click", () => cycleChannelButton(els.masterMainClickChannelBtn));
+  bind(els.masterAudioChannelBtn, "click", () => cycleChannelButton(els.masterAudioChannelBtn));
   bind(els.loopMainClickChannelBtn, "click", () => cycleChannelButton(els.loopMainClickChannelBtn));
   bind(els.countInBacking1AudioBtn, "click", () => openBackingModal("countIn:1"));
   bind(els.countInBacking2AudioBtn, "click", () => openBackingModal("countIn:2"));
@@ -593,6 +607,7 @@ function wireEvents() {
   bind(document, "pointermove", onQuickPickerPointerMove);
   bind(document, "pointerup", onQuickPickerPointerUp);
   bind(document, "pointercancel", onQuickPickerPointerCancel);
+  bind(els.quickPickerOverlay, "pointerdown", onQuickPickerOverlayPointerDown);
   bind(els.quickPickerOverlay, "click", onQuickPickerOverlayClick);
   if (els.quickPickerOverlay) {
     els.quickPickerOverlay.addEventListener("wheel", onQuickPickerWheel, { passive: false });
@@ -614,6 +629,13 @@ function wireEvents() {
 
   bind(els.setSearchInput, "input", renderLoadList);
   bind(els.setSortInput, "change", renderLoadList);
+  bind(els.saveSetForm, "submit", onSaveSetSubmit);
+  bind(els.saveSetCancelBtn, "click", () => closeModal(els.saveModal));
+  bind(els.saveToDeviceBtn, "click", onSaveSetToDevice);
+  bind(els.importSetBtn, "click", () => {
+    els.importSetFileInput?.click();
+  });
+  bind(els.importSetFileInput, "change", onImportSetFilePicked);
 
   bind(els.confirmCancelBtn, "click", () => closeModal(els.confirmModal));
   bind(els.confirmOkBtn, "click", async () => {
@@ -662,6 +684,12 @@ function wireEvents() {
         clearBackingModalDraft();
       }
       closeModal(event.target);
+    }
+  });
+
+  document.addEventListener("contextmenu", (event) => {
+    if (event.target.closest(".track-row") || appState.dragReorder.active) {
+      event.preventDefault();
     }
   });
 
@@ -881,12 +909,31 @@ function render() {
   updatePlaybackVisualUI();
 }
 
+function isMasterMainClickEnabled(track) {
+  if (!track || track.type !== "master") {
+    return false;
+  }
+  const enabled = track.masterCountIn?.mainClick?.enabled;
+  return enabled ?? true;
+}
+
 function isCurrentSetRenderedFully() {
-  const renderableTracks = (appState.currentSet.tracks || []).filter((track) => track.type === "built" || track.type === "loop");
+  const renderableTracks = (appState.currentSet.tracks || []).filter((track) => {
+    if (track.type === "built" || track.type === "loop") {
+      return true;
+    }
+    return isMasterMainClickEnabled(track);
+  });
   if (!renderableTracks.length) {
     return false;
   }
   return renderableTracks.every((track) => {
+    if (track.type === "master") {
+      const rendered = track.masterRendered;
+      const validation = track.masterRenderValidation;
+      return !!rendered?.ready && !!rendered?.clickFileId && !!rendered?.backingFileId && validation?.ok !== false;
+    }
+
     if (track.type === "built") {
       const rendered = track.built?.rendered;
       const validation = track.built?.renderValidation;
@@ -1291,10 +1338,6 @@ function selectTrack(index) {
 }
 
 function getTrackRenderStatus(track) {
-  if (track.type === "master") {
-    return { label: "AUDIO", className: "render-chip-master" };
-  }
-
   const override = appState.renderStatusByTrackId[track.id];
   if (override === "rendering") {
     return { label: "RENDERING", className: "render-chip-rendering" };
@@ -1309,6 +1352,25 @@ function getTrackRenderStatus(track) {
     if (queued.includes(track.id) && !doneIds.includes(track.id) && appState.renderProgress.currentTrackId !== track.id) {
       return { label: "QUEUED", className: "render-chip-queued" };
     }
+  }
+
+  if (track.type === "master") {
+    if (!isMasterMainClickEnabled(track)) {
+      return { label: "AUDIO", className: "render-chip-master" };
+    }
+
+    const rendered = track.masterRendered;
+    const validation = track.masterRenderValidation;
+    if (rendered?.ready && validation?.ok !== false) {
+      return { label: "RENDERED OK", className: "render-chip-ok" };
+    }
+    if (rendered?.ready && validation?.ok === false) {
+      return { label: "RENDER WARN", className: "render-chip-warn" };
+    }
+    if (rendered?.fallbackMode === "live") {
+      return { label: "LIVE FALLBACK", className: "render-chip-warn" };
+    }
+    return { label: "NEEDS RENDER", className: "render-chip-pending" };
   }
 
   const rendered = track.type === "built" ? track.built?.rendered : track.loop?.rendered;
@@ -1361,12 +1423,14 @@ function beginTrackDrag(event, row, index) {
   drag.sourceRow = row;
 
   if (drag.pointerType === "touch" || drag.pointerType === "pen") {
+    // Prevent touch gestures (including pull-to-refresh) from hijacking hold-to-drag.
+    row.style.touchAction = "none";
     drag.holdTimerId = window.setTimeout(() => {
       if (!drag.sourceRow || drag.pointerId !== event.pointerId || drag.active) {
         return;
       }
       startFloatingDragAt(drag.startX, drag.startY);
-    }, 260);
+    }, TRACK_DRAG_HOLD_MS);
   }
 
   try {
@@ -1389,7 +1453,7 @@ function onTrackDragMove(event) {
   const touchLikePointer = drag.pointerType === "touch" || drag.pointerType === "pen";
   const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
   if (!drag.active && touchLikePointer) {
-    if (distance > 10) {
+    if (distance > TRACK_DRAG_CANCEL_TOLERANCE_PX) {
       clearTrackDragHoldTimer();
     }
     return;
@@ -1417,7 +1481,7 @@ function onTrackDragMove(event) {
   }
 
   const targetRect = target.getBoundingClientRect();
-  const insertBefore = event.clientY < targetRect.top + (targetRect.height / 2);
+  const insertBefore = shouldInsertPlaceholderBeforeTarget(event, targetRect);
   if (insertBefore) {
     if (target.previousElementSibling !== placeholder) {
       els.trackList.insertBefore(placeholder, target);
@@ -1467,6 +1531,7 @@ function clearTrackDragState() {
     drag.sourceRow.style.top = "";
     drag.sourceRow.style.width = "";
     drag.sourceRow.style.height = "";
+    drag.sourceRow.style.touchAction = "";
     drag.sourceRow.removeEventListener("pointermove", onTrackDragMove);
     drag.sourceRow.removeEventListener("pointerup", onTrackDragEnd);
     drag.sourceRow.removeEventListener("pointercancel", onTrackDragCancel);
@@ -1491,6 +1556,32 @@ function clearTrackDragState() {
   drag.holdTimerId = null;
   drag.sourceRow = null;
   drag.placeholder = null;
+}
+
+function shouldInsertPlaceholderBeforeTarget(event, targetRect) {
+  if (!els.trackList) {
+    return event.clientY < targetRect.top + (targetRect.height / 2);
+  }
+
+  const columns = trackListColumnCount();
+  if (columns > 1) {
+    return event.clientX < targetRect.left + (targetRect.width / 2);
+  }
+
+  return event.clientY < targetRect.top + (targetRect.height / 2);
+}
+
+function trackListColumnCount() {
+  if (!els.trackList) {
+    return 1;
+  }
+
+  const template = window.getComputedStyle(els.trackList).gridTemplateColumns || "";
+  if (!template || template === "none") {
+    return 1;
+  }
+
+  return Math.max(1, template.split(" ").filter(Boolean).length);
 }
 
 function clearTrackDragHoldTimer() {
@@ -1581,15 +1672,25 @@ function onNewSet() {
 }
 
 function onSaveSet() {
-  const setName = appState.currentSet.name === "UNTITLED SET"
-    ? window.prompt("Name this set", "My Live Set")
-    : appState.currentSet.name;
-
-  if (!setName) {
+  if (!els.saveModal || !els.saveSetNameInput) {
     return;
   }
 
-  appState.currentSet.name = setName.trim().toUpperCase();
+  const existingName = (appState.currentSet.name || "").trim();
+  els.saveSetNameInput.value = existingName && existingName !== "UNTITLED SET" ? existingName : "";
+  openModal(els.saveModal);
+
+  // Focus and select when reopening so renaming is quick on desktop and mobile keyboards.
+  requestAnimationFrame(() => {
+    if (!els.saveSetNameInput) {
+      return;
+    }
+    els.saveSetNameInput.focus();
+    els.saveSetNameInput.select();
+  });
+}
+
+function persistCurrentSet() {
   appState.currentSet.lastUsedAt = Date.now();
 
   const existingIndex = appState.savedSets.findIndex((item) => item.id === appState.currentSet.id);
@@ -1600,8 +1701,155 @@ function onSaveSet() {
   }
 
   persistSavedSets();
+}
+
+function onSaveSetSubmit(event) {
+  event.preventDefault();
+  if (!els.saveSetNameInput) {
+    return;
+  }
+
+  const setName = (els.saveSetNameInput.value || "").trim();
+  if (!setName) {
+    window.alert("Please enter a set name.");
+    return;
+  }
+
+  appState.currentSet.name = setName.toUpperCase();
+  persistCurrentSet();
+  closeModal(els.saveModal);
   render();
   queueEnsureCurrentSetRendered({ forceAll: false });
+}
+
+function normalizeSetName(rawName) {
+  const trimmed = String(rawName || "").trim();
+  return trimmed ? trimmed.toUpperCase() : "";
+}
+
+function fileSafeSetName(rawName) {
+  const normalized = normalizeSetName(rawName) || "SET";
+  return normalized
+    .replace(/[^A-Z0-9 _-]/g, "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .slice(0, 48) || "SET";
+}
+
+function serializeCurrentSetForExport(setName) {
+  const exportedSet = structuredClone(appState.currentSet);
+  if (setName) {
+    exportedSet.name = normalizeSetName(setName);
+  }
+  exportedSet.lastUsedAt = Date.now();
+  return {
+    schema: "setlist-builder-set",
+    version: 1,
+    exportedAt: Date.now(),
+    set: exportedSet
+  };
+}
+
+async function onSaveSetToDevice() {
+  if (!els.saveSetNameInput) {
+    return;
+  }
+
+  const setName = normalizeSetName(els.saveSetNameInput.value);
+  if (!setName) {
+    window.alert("Please enter a set name.");
+    return;
+  }
+
+  appState.currentSet.name = setName;
+  const exportPayload = serializeCurrentSetForExport(setName);
+  const json = JSON.stringify(exportPayload, null, 2);
+  const fileName = `${fileSafeSetName(setName)}.setlist.json`;
+
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [{
+          description: "Setlist Builder Set",
+          accept: { "application/json": [".json"] }
+        }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      closeModal(els.saveModal);
+      render();
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
+      // Fall through to download fallback when picker fails.
+    }
+  }
+
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  closeModal(els.saveModal);
+  render();
+}
+
+function normalizeImportedSetCandidate(payload) {
+  const source = payload?.schema === "setlist-builder-set" ? payload.set : payload;
+  if (!source || typeof source !== "object" || !Array.isArray(source.tracks)) {
+    return null;
+  }
+
+  const set = structuredClone(source);
+  if (!set.id) {
+    set.id = crypto.randomUUID();
+  }
+  set.name = normalizeSetName(set.name) || "IMPORTED SET";
+  set.continuousPlay = !!set.continuousPlay;
+  set.lastUsedAt = Date.now();
+  return set;
+}
+
+async function onImportSetFilePicked() {
+  const file = els.importSetFileInput?.files?.[0];
+  if (!file) {
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const importedSet = normalizeImportedSetCandidate(parsed);
+    if (!importedSet) {
+      window.alert("That file is not a valid Setlist Builder set.");
+      return;
+    }
+
+    stopPlayback();
+    appState.currentSet = importedSet;
+    appState.renderStatusByTrackId = {};
+    appState.selectedTrackIndex = appState.currentSet.tracks.length ? 0 : -1;
+    appState.playingTrackIndex = -1;
+    persistCurrentSet();
+    closeModal(els.loadModal);
+    render();
+    queueEnsureCurrentSetRendered({ forceAll: false });
+  } catch {
+    window.alert("Unable to import that file. Make sure it is a valid JSON set export.");
+  } finally {
+    if (els.importSetFileInput) {
+      els.importSetFileInput.value = "";
+    }
+  }
 }
 
 function loadSavedSets() {
@@ -1629,7 +1877,12 @@ function queueEnsureCurrentSetRendered(options = { forceAll: false }) {
 
   clearRenderQueueBannerHideTimer();
 
-  const renderableTracks = (appState.currentSet.tracks || []).filter((track) => track.type === "built" || track.type === "loop");
+  const renderableTracks = (appState.currentSet.tracks || []).filter((track) => {
+    if (track.type === "built" || track.type === "loop") {
+      return true;
+    }
+    return isMasterMainClickEnabled(track);
+  });
   appState.renderStatusByTrackId = {};
   appState.renderProgress.active = true;
   appState.renderProgress.total = renderableTracks.length;
@@ -1691,18 +1944,25 @@ async function ensureSetRendered(set, options = { forceAll: false }) {
   let processed = 0;
 
   for (const track of tracks) {
-    if (track.type !== "built" && track.type !== "loop") {
+    if (track.type !== "built" && track.type !== "loop" && track.type !== "master") {
+      continue;
+    }
+    if (track.type === "master" && !isMasterMainClickEnabled(track)) {
       continue;
     }
 
     appState.renderProgress.currentTrackId = track.id;
-    appState.renderProgress.currentTrackName = track.displayName || (track.type === "loop" ? "Loop Track" : "Build Track");
+    appState.renderProgress.currentTrackName = track.displayName || (track.type === "loop"
+      ? "Loop Track"
+      : (track.type === "master" ? "Master Slate" : "Build Track"));
     render();
 
     const stepStartMs = performance.now();
-    const result = track.type === "loop"
-      ? await ensureLoopTrackRendered(track, options)
-      : await ensureBuiltTrackRendered(track, options);
+    const result = track.type === "master"
+      ? await ensureMasterTrackRendered(track, options)
+      : (track.type === "loop"
+        ? await ensureLoopTrackRendered(track, options)
+        : await ensureBuiltTrackRendered(track, options));
     changed = changed || result.changed;
     processed += 1;
     appState.renderProgress.done = processed;
@@ -1796,6 +2056,40 @@ async function ensureLoopTrackRendered(track, options = { forceAll: false }) {
   }
 }
 
+async function ensureMasterTrackRendered(track, options = { forceAll: false }) {
+  const forceAll = !!options.forceAll;
+  const rendered = track.masterRendered;
+  const validation = track.masterRenderValidation;
+  let needsRender = forceAll || !rendered?.ready || !rendered?.clickFileId || !rendered?.backingFileId || validation?.ok === false;
+
+  if (!needsRender) {
+    const [clickFile, backingFile] = await Promise.all([
+      getFileById(rendered.clickFileId),
+      getFileById(rendered.backingFileId)
+    ]);
+    needsRender = !clickFile || !backingFile;
+  }
+
+  if (!needsRender) {
+    delete appState.renderStatusByTrackId[track.id];
+    return { changed: false };
+  }
+
+  appState.renderStatusByTrackId[track.id] = "rendering";
+  render();
+
+  try {
+    const rerender = await renderAndPersistMasterTrackAssets(track);
+    track.masterRendered = rerender.rendered;
+    track.masterRenderValidation = rerender.validation;
+    delete appState.renderStatusByTrackId[track.id];
+    return { changed: true };
+  } catch {
+    appState.renderStatusByTrackId[track.id] = "error";
+    return { changed: false };
+  }
+}
+
 function renderLoadList() {
   const search = els.setSearchInput.value.trim().toLowerCase();
   const sort = els.setSortInput.value;
@@ -1836,7 +2130,7 @@ function renderLoadList() {
       appState.selectedTrackIndex = appState.currentSet.tracks.length ? 0 : -1;
       appState.playingTrackIndex = -1;
       appState.currentSet.lastUsedAt = Date.now();
-      onSaveSet();
+      persistCurrentSet();
       closeModal(els.loadModal);
       render();
       queueEnsureCurrentSetRendered({ forceAll: false });
@@ -1873,6 +2167,9 @@ function openTrackModal(mode, trackId = null) {
   els.mainClickChannelBtn.textContent = "R";
   els.masterMainClickChannelBtn.dataset.channel = "right";
   els.masterMainClickChannelBtn.textContent = "R";
+  els.masterMainClickEnabledInput.checked = false;
+  els.masterAudioChannelBtn.dataset.channel = "left";
+  els.masterAudioChannelBtn.textContent = "L";
   els.masterMainClickBpmInput.value = 120;
   els.masterMainClickTimeSignatureInput.value = "4/4";
   els.loopMainClickChannelBtn.dataset.channel = "right";
@@ -1923,12 +2220,17 @@ function openTrackModal(mode, trackId = null) {
       setBackingSlotMeta("masterCountIn:1", countIn.backing1?.fileId || "", countIn.backing1?.fileName || "", countIn.backing1?.channel || "left");
       setBackingSlotMeta("masterCountIn:2", countIn.backing2?.fileId || "", countIn.backing2?.fileName || "", countIn.backing2?.channel || "both");
       els.masterMainClickSampleInput.value = masterMainClick.sample || "beep";
+      els.masterMainClickEnabledInput.checked = masterMainClick.enabled ?? true;
       els.masterMainClickChannelBtn.dataset.channel = masterMainClick.channel || "right";
       els.masterMainClickChannelBtn.textContent = channelLabel(masterMainClick.channel || "right");
       els.masterMainClickBpmInput.value = Number(masterMainClick.bpm) || Number(track.lockedMeta?.bpm) || 120;
       els.masterMainClickTimeSignatureInput.value = masterMainClick.timeSignature || track.lockedMeta?.timeSignature || "4/4";
       els.masterStrongBeatEnabledInput.checked = !!masterMainClick.strongBeatEnabled;
       els.masterStrongBeatClickSampleInput.value = masterMainClick.strongBeatSample || "rim";
+      els.splitOutputInput.checked = !!track.masterSplitOutput?.enabled;
+      const masterAudioChannel = track.masterSplitOutput?.audioChannel || "left";
+      els.masterAudioChannelBtn.dataset.channel = masterAudioChannel;
+      els.masterAudioChannelBtn.textContent = channelLabel(masterAudioChannel);
     } else if (track.type === "built") {
       const built = normalizeBuiltTrack(track.built || {});
       els.mainAudioInput.dataset.existingName = "";
@@ -2307,7 +2609,7 @@ function setTrackType(type) {
 
   const splitOnlyNodes = document.querySelectorAll(".build-split-only");
   splitOnlyNodes.forEach((node) => {
-    node.style.display = isBuilt ? "flex" : "none";
+    node.style.display = (isBuilt || isMaster) ? "flex" : "none";
   });
 
   syncCountInControls();
@@ -2324,7 +2626,13 @@ function syncCountInControls() {
   els.masterClickSampleInput.disabled = !masterCountInEnabled;
 
   const masterStrongBeatEnabled = !!els.masterStrongBeatEnabledInput.checked;
-  els.masterStrongBeatClickSampleInput.disabled = !masterStrongBeatEnabled;
+  const masterMainClickEnabled = !!els.masterMainClickEnabledInput.checked;
+  els.masterMainClickChannelBtn.disabled = !masterMainClickEnabled;
+  els.masterMainClickSampleInput.disabled = !masterMainClickEnabled;
+  els.masterMainClickBpmInput.disabled = !masterMainClickEnabled;
+  els.masterMainClickTimeSignatureInput.disabled = !masterMainClickEnabled;
+  els.masterStrongBeatEnabledInput.disabled = !masterMainClickEnabled;
+  els.masterStrongBeatClickSampleInput.disabled = !masterMainClickEnabled || !masterStrongBeatEnabled;
 
   const builtCountInEnabled = !!els.countInInput.checked;
   els.clickSampleInput.disabled = !builtCountInEnabled;
@@ -2614,12 +2922,12 @@ function onQuickPickerFieldPointerDown(event) {
     return;
   }
 
-  event.preventDefault();
-
   const pointerType = event.pointerType || "mouse";
   if (pointerType !== "touch" && pointerType !== "pen") {
     return;
   }
+
+  event.preventDefault();
 
   closeQuickPicker();
 
@@ -2631,7 +2939,7 @@ function onQuickPickerFieldPointerDown(event) {
 
   clearQuickPickerHoldTimer();
   picker.holdTimerId = window.setTimeout(() => {
-    if (picker.pendingPointerId !== event.pointerId || picker.movedBeforeHold || !picker.pendingField) {
+    if (picker.pendingPointerId !== event.pointerId || !picker.pendingField) {
       return;
     }
     openQuickPicker(picker.pendingField, {
@@ -2659,19 +2967,14 @@ function onQuickPickerFieldClick(event) {
 
 function onQuickPickerPointerMove(event) {
   const picker = appState.quickPicker;
-  if (picker.pendingPointerId === event.pointerId && !picker.active) {
-    const distance = Math.abs(event.clientY - picker.pendingStartY);
-    if (distance > 12) {
-      picker.movedBeforeHold = true;
-      clearQuickPickerHoldTimer();
-    }
-  }
-
   if (!picker.active || picker.pointerId !== event.pointerId) {
     return;
   }
 
   const deltaSteps = Math.round((picker.startY - event.clientY) / QUICK_PICKER_STEP_PX);
+  if (deltaSteps !== 0) {
+    picker.suppressClickUntil = Date.now() + 220;
+  }
   setQuickPickerSelectionFromDelta(deltaSteps);
 }
 
@@ -2679,14 +2982,13 @@ function onQuickPickerPointerUp(event) {
   const picker = appState.quickPicker;
   if (picker.pendingPointerId === event.pointerId) {
     const field = picker.pendingField;
-    const moved = picker.movedBeforeHold;
     clearQuickPickerHoldTimer();
     picker.pendingPointerId = null;
     picker.pendingField = null;
     picker.pendingStartY = 0;
     picker.movedBeforeHold = false;
 
-    if (!picker.active && field && !moved) {
+    if (!picker.active && field) {
       openQuickPicker(field, { transient: false });
       picker.suppressClickUntil = Date.now() + 380;
       return;
@@ -2698,8 +3000,12 @@ function onQuickPickerPointerUp(event) {
   }
 
   if (picker.transient) {
+    picker.suppressClickUntil = Date.now() + 280;
     closeQuickPicker();
+    return;
   }
+
+  picker.pointerId = null;
 }
 
 function onQuickPickerPointerCancel(event) {
@@ -2713,8 +3019,34 @@ function onQuickPickerPointerCancel(event) {
   }
 
   if (picker.active && picker.pointerId === event.pointerId) {
+    picker.suppressClickUntil = Date.now() + 280;
     closeQuickPicker();
   }
+}
+
+function onQuickPickerOverlayPointerDown(event) {
+  const picker = appState.quickPicker;
+  if (!picker.active) {
+    return;
+  }
+
+  const pointerType = event.pointerType || "mouse";
+  if (pointerType !== "touch" && pointerType !== "pen") {
+    return;
+  }
+
+  if (!event.target.closest("#quickPickerCard")) {
+    return;
+  }
+
+  if (picker.pointerId !== null && picker.pointerId !== event.pointerId) {
+    return;
+  }
+
+  picker.pointerId = event.pointerId;
+  picker.startY = event.clientY;
+  picker.gestureStartSelection = picker.selectedIndex;
+  event.preventDefault();
 }
 
 function onQuickPickerOverlayClick(event) {
@@ -2723,6 +3055,11 @@ function onQuickPickerOverlayClick(event) {
   }
 
   const picker = appState.quickPicker;
+  if (Date.now() < picker.suppressClickUntil) {
+    event.preventDefault();
+    return;
+  }
+
   if (!picker.transient) {
     const row = event.target.closest(".quick-picker-row");
     if (row && !row.classList.contains("empty")) {
@@ -3568,10 +3905,12 @@ async function buildMasterTrack(displayName, options = {}) {
   options.onProgress?.(76, "Building track data...");
 
   const masterClickEnabled = !!els.masterCountInInput.checked;
+  const masterMainClickEnabled = !!els.masterMainClickEnabledInput.checked;
   const masterMainClickChannel = els.masterMainClickChannelBtn.dataset.channel || "right";
+  const masterAudioChannel = els.masterAudioChannelBtn.dataset.channel || "left";
   const masterStrongBeatEnabled = !!els.masterStrongBeatEnabledInput.checked;
 
-  return {
+  const draftMaster = {
     id: crypto.randomUUID(),
     type: "master",
     displayName,
@@ -3582,6 +3921,10 @@ async function buildMasterTrack(displayName, options = {}) {
       timeSignature: "4/4",
       lengthSec: meta.durationSec
     },
+    masterSplitOutput: {
+      enabled: !!els.splitOutputInput.checked,
+      audioChannel: masterAudioChannel
+    },
     masterCountIn: {
       enabled: masterClickEnabled || !!countInBacking1.enabled || !!countInBacking2.enabled,
       clickEnabled: masterClickEnabled,
@@ -3591,6 +3934,7 @@ async function buildMasterTrack(displayName, options = {}) {
       backing1: countInBacking1,
       backing2: countInBacking2,
       mainClick: {
+        enabled: masterMainClickEnabled,
         sample: els.masterMainClickSampleInput.value || "beep",
         channel: masterMainClickChannel,
         bpm: Number(els.masterMainClickBpmInput.value) || 120,
@@ -3600,6 +3944,36 @@ async function buildMasterTrack(displayName, options = {}) {
       }
     }
   };
+
+  if (editingTrack?.type === "master") {
+    draftMaster.masterRendered = editingTrack.masterRendered || null;
+    draftMaster.masterRenderValidation = editingTrack.masterRenderValidation || null;
+  } else {
+    draftMaster.masterRendered = null;
+    draftMaster.masterRenderValidation = null;
+  }
+
+  if (masterMainClickEnabled) {
+    options.onProgress?.(84, "Rendering master stems...");
+    const renderResult = await renderAndPersistMasterTrackAssets(draftMaster, options);
+    draftMaster.masterRendered = renderResult.rendered;
+    draftMaster.masterRenderValidation = renderResult.validation;
+  } else if (draftMaster.masterRendered?.clickFileId || draftMaster.masterRendered?.backingFileId) {
+    const previousClickId = draftMaster.masterRendered.clickFileId;
+    const previousBackingId = draftMaster.masterRendered.backingFileId;
+    if (previousClickId) {
+      await deleteFileFromDb(previousClickId);
+      options.throwIfCancelled?.();
+    }
+    if (previousBackingId) {
+      await deleteFileFromDb(previousBackingId);
+      options.throwIfCancelled?.();
+    }
+    draftMaster.masterRendered = null;
+    draftMaster.masterRenderValidation = null;
+  }
+
+  return draftMaster;
 }
 
 async function buildBuiltTrack(displayName, options = {}) {
@@ -3816,6 +4190,13 @@ function onPlayNextTrack() {
 }
 
 async function playMasterTrack(track, sessionId) {
+  if (isMasterMainClickEnabled(track) && track.masterRendered?.ready) {
+    const renderedOk = await playMasterTrackRendered(track, sessionId);
+    if (renderedOk) {
+      return;
+    }
+  }
+
   const file = await getFileById(track.audioFileId);
   if (!file) {
     window.alert("Audio file is missing. Use Replace Audio to relink the file.");
@@ -3826,10 +4207,17 @@ async function playMasterTrack(track, sessionId) {
   const timers = [];
   const activeAudios = [];
   let countInContext = null;
+  let mainClickIntervalId = null;
   let audio = null;
   let audioUrl = null;
+  let masterAudioSource = null;
+  let masterAudioPanner = null;
   let diagDumped = false;
   const countInConfig = track.masterCountIn || {};
+  const splitOutputConfig = track.masterSplitOutput || {};
+  const splitOutputEnabled = !!splitOutputConfig.enabled;
+  const masterMainClickEnabled = isMasterMainClickEnabled(track);
+  const masterAudioPan = splitOutputEnabled ? panValue(splitOutputConfig.audioChannel || "left") : 0;
   const countInClickEnabled = countInConfig.clickEnabled ?? !!countInConfig.enabled;
   const countInBeats = countInClickEnabled ? (Number(countInConfig.beats) || 4) : 0;
   const countInBpm = Number(countInConfig.bpm) || 120;
@@ -3839,6 +4227,10 @@ async function playMasterTrack(track, sessionId) {
   const stop = () => {
     cancelled = true;
     timers.forEach((timerId) => clearTimeout(timerId));
+    if (mainClickIntervalId !== null) {
+      clearInterval(mainClickIntervalId);
+      mainClickIntervalId = null;
+    }
     if (audio) {
       audio.pause();
       audio.currentTime = 0;
@@ -3846,6 +4238,14 @@ async function playMasterTrack(track, sessionId) {
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
       audioUrl = null;
+    }
+    if (masterAudioSource) {
+      masterAudioSource.disconnect();
+      masterAudioSource = null;
+    }
+    if (masterAudioPanner) {
+      masterAudioPanner.disconnect();
+      masterAudioPanner = null;
     }
     activeAudios.forEach(({ audio: extraAudio, url }) => {
       extraAudio.pause();
@@ -3979,10 +4379,108 @@ async function playMasterTrack(track, sessionId) {
   audioUrl = URL.createObjectURL(file);
   audio = new Audio(audioUrl);
 
+  if (!countInContext || countInContext.state === "closed") {
+    countInContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (countInContext.state === "suspended") {
+    await countInContext.resume();
+  }
+
+  if (masterMainClickEnabled) {
+    const masterMainClick = countInConfig.mainClick || {};
+    const masterMainClickBpm = Math.max(20, Number(masterMainClick.bpm) || 120);
+    const masterMainClickBeatDurationSec = 60 / masterMainClickBpm;
+    const masterMainClickBeatsPerBar = beatsPerBarFromSignature(masterMainClick.timeSignature || "4/4");
+    const masterMainClickSample = masterMainClick.sample || "beep";
+    const masterStrongBeatSpec = resolveStrongBeatSpec(
+      masterMainClickSample,
+      masterMainClick.strongBeatSample || "rim",
+      false
+    );
+    const masterMainClickPan = splitOutputEnabled ? panValue(masterMainClick.channel || "right") : 0;
+    const masterMainClickBuffers = await loadBuiltInSampleBuffersForContext(
+      countInContext,
+      [masterMainClickSample, masterStrongBeatSpec.sample]
+    );
+    const masterMainClickClock = makeContextClock(countInContext);
+    let masterMainClickNextBeatAt = 0;
+    let masterMainClickBeatIndex = 0;
+    let masterMainClickStarted = false;
+
+    const scheduleMasterMainClick = () => {
+      if (cancelled || !countInContext || countInContext.state === "closed") {
+        return;
+      }
+
+      while (masterMainClickNextBeatAt < countInContext.currentTime + 0.2) {
+        const isStrongBeat = !!masterMainClick.strongBeatEnabled
+          && (masterMainClickBeatIndex % masterMainClickBeatsPerBar) === 0;
+        if (isStrongBeat) {
+          scheduleClickCueAt(
+            countInContext,
+            masterMainClickBuffers.get(masterStrongBeatSpec.sample) || null,
+            masterStrongBeatSpec.sample,
+            masterMainClickPan,
+            masterMainClickNextBeatAt,
+            {
+              sessionId,
+              label: "master main strong beat",
+              clock: masterMainClickClock
+            },
+            { playbackRate: masterStrongBeatSpec.playbackRate }
+          );
+        } else {
+          scheduleClickCueAt(
+            countInContext,
+            masterMainClickBuffers.get(masterMainClickSample) || null,
+            masterMainClickSample,
+            masterMainClickPan,
+            masterMainClickNextBeatAt,
+            {
+              sessionId,
+              label: "master main click beat",
+              clock: masterMainClickClock
+            }
+          );
+        }
+
+        masterMainClickNextBeatAt += masterMainClickBeatDurationSec;
+        masterMainClickBeatIndex += 1;
+      }
+    };
+
+    audio.addEventListener("playing", () => {
+      if (masterMainClickStarted || cancelled || !countInContext || countInContext.state === "closed") {
+        return;
+      }
+      masterMainClickStarted = true;
+      masterMainClickNextBeatAt = countInContext.currentTime + 0.02;
+      scheduleMasterMainClick();
+      mainClickIntervalId = setInterval(scheduleMasterMainClick, 60);
+    }, { once: true });
+  }
+
+  masterAudioSource = countInContext.createMediaElementSource(audio);
+  masterAudioPanner = countInContext.createStereoPanner();
+  masterAudioPanner.pan.value = masterAudioPan;
+  masterAudioSource.connect(masterAudioPanner).connect(countInContext.destination);
+
   audio.addEventListener("ended", () => {
+    if (mainClickIntervalId !== null) {
+      clearInterval(mainClickIntervalId);
+      mainClickIntervalId = null;
+    }
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
       audioUrl = null;
+    }
+    if (masterAudioSource) {
+      masterAudioSource.disconnect();
+      masterAudioSource = null;
+    }
+    if (masterAudioPanner) {
+      masterAudioPanner.disconnect();
+      masterAudioPanner = null;
     }
     if (countInContext && countInContext.state !== "closed") {
       countInContext.close();
@@ -4000,6 +4498,114 @@ async function playMasterTrack(track, sessionId) {
   });
 
   await audio.play();
+}
+
+async function playMasterTrackRendered(track, sessionId) {
+  let cancelled = false;
+  const activeAudios = [];
+  const rendered = track.masterRendered || {};
+
+  const stop = () => {
+    cancelled = true;
+    activeAudios.forEach(({ audio, url }) => {
+      audio.pause();
+      audio.currentTime = 0;
+      URL.revokeObjectURL(url);
+    });
+    appState.playingHandle = null;
+    resetPlaybackVisual();
+    dumpDiagnosticSummary(sessionId);
+    render();
+  };
+
+  appState.playingHandle = { stop };
+  render();
+
+  const clickFile = rendered.clickFileId ? await getFileById(rendered.clickFileId) : null;
+  const backingFile = rendered.backingFileId ? await getFileById(rendered.backingFileId) : null;
+
+  if (!clickFile && !backingFile) {
+    stop();
+    return false;
+  }
+
+  await waitMs(PLAY_SYNC_PREP_MS);
+  if (cancelled) {
+    stop();
+    return false;
+  }
+
+  try {
+    const playPromises = [];
+    if (clickFile) {
+      const clickUrl = URL.createObjectURL(clickFile);
+      const clickAudio = new Audio(clickUrl);
+      activeAudios.push({ audio: clickAudio, url: clickUrl });
+      playPromises.push(clickAudio.play());
+    }
+
+    if (backingFile) {
+      const backingUrl = URL.createObjectURL(backingFile);
+      const backingAudio = new Audio(backingUrl);
+      activeAudios.push({ audio: backingAudio, url: backingUrl });
+      playPromises.push(backingAudio.play());
+    }
+
+    if (playPromises.length) {
+      await Promise.all(playPromises);
+    }
+  } catch {
+    stop();
+    return false;
+  }
+
+  const durationSec = Number(rendered.durationSec)
+    || Number(track.lockedMeta?.lengthSec)
+    || totalTrackSeconds(track);
+  const countInConfig = track.masterCountIn || {};
+  const countInClickEnabled = !!countInConfig.clickEnabled;
+  const countInWindowEnabled = countInClickEnabled
+    || !!countInConfig.backing1?.enabled
+    || !!countInConfig.backing2?.enabled;
+  const countInBeats = countInClickEnabled && countInWindowEnabled ? (Number(countInConfig.beats) || 4) : 0;
+  const countInBpm = Number(countInConfig.bpm) || 120;
+  const renderedCountInDurationSec = Number(rendered.countInDurationSec);
+  const countInDurationMs = countInWindowEnabled
+    ? (Number.isFinite(renderedCountInDurationSec)
+      ? Math.max(0, renderedCountInDurationSec * 1000)
+      : (countInBeats > 0 ? countInBeats * (60000 / countInBpm) : 0))
+    : 0;
+
+  const playbackStartWallMs = performance.now();
+  startPlaybackVisual(track, sessionId, {
+    countInBeats,
+    countInBpm,
+    trackDurationSec: durationSec,
+    countInStartWallMs: countInDurationMs > 0 ? playbackStartWallMs : null,
+    trackStartWallMs: playbackStartWallMs + countInDurationMs
+  });
+
+  setTimeout(() => {
+    if (cancelled) {
+      return;
+    }
+    stop();
+    if (appState.currentSet.continuousPlay) {
+      playNextIfAvailable();
+    }
+  }, Math.max((durationSec + 0.2) * 1000, 500));
+
+  recordDiagnosticEvent({
+    sessionId,
+    label: "master-rendered-playback-start",
+    source: "rendered",
+    expectedStartWallMs: roundMs(performance.now()),
+    expectedEndWallMs: roundMs(performance.now() + durationSec * 1000),
+    actualEndWallMs: null,
+    driftMs: null
+  });
+
+  return true;
 }
 
 async function playBuiltTrack(track, sessionId) {
@@ -4781,6 +5387,11 @@ async function replaceAudio(trackId) {
       const meta = await getAudioMetadata(file);
       track.lockedMeta.lengthSec = meta.durationSec;
       track.lockedMeta.bpm = Math.round(meta.estimatedBpm || track.lockedMeta.bpm || 120);
+      if (isMasterMainClickEnabled(track)) {
+        const rerender = await renderAndPersistMasterTrackAssets(track);
+        track.masterRendered = rerender.rendered;
+        track.masterRenderValidation = rerender.validation;
+      }
     } else if (track.type === "built") {
       const sections = track.built.sections || [];
       if (!sections.length) {
@@ -4876,6 +5487,14 @@ function confirmDeleteTrack(trackId) {
 
     if (track.type === "master" && track.masterCountIn?.customFileId) {
       await deleteFileFromDb(track.masterCountIn.customFileId);
+    }
+
+    if (track.type === "master" && track.masterRendered?.clickFileId) {
+      await deleteFileFromDb(track.masterRendered.clickFileId);
+    }
+
+    if (track.type === "master" && track.masterRendered?.backingFileId) {
+      await deleteFileFromDb(track.masterRendered.backingFileId);
     }
 
     if (track.type === "built" && track.built.customCountInFileId) {
@@ -5026,6 +5645,217 @@ async function getAudioMetadata(file) {
       resolve({ durationSec: 0, estimatedBpm: null });
     });
   });
+}
+
+async function renderAndPersistMasterTrackAssets(track, options = {}) {
+  const masterFile = track?.audioFileId ? await getFileById(track.audioFileId) : null;
+  if (!masterFile) {
+    throw new Error("Missing master audio file");
+  }
+
+  const countInConfig = track.masterCountIn || {};
+  const splitOutputConfig = track.masterSplitOutput || {};
+  const splitOutputEnabled = !!splitOutputConfig.enabled;
+  const mainClick = countInConfig.mainClick || {};
+  const mainClickEnabled = isMasterMainClickEnabled(track);
+
+  let decodeContext = null;
+  try {
+    options.throwIfCancelled?.();
+    options.onProgress?.(86, "Decoding master assets...");
+    decodeContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    const masterBuffer = await decodeFileToAudioBuffer(decodeContext, masterFile);
+    if (!masterBuffer) {
+      throw new Error("Unable to decode master audio");
+    }
+
+    const countInClickEnabled = !!countInConfig.clickEnabled;
+    const countInBeats = countInClickEnabled ? (Number(countInConfig.beats) || 4) : 0;
+    const countInBpm = Number(countInConfig.bpm) || 120;
+    const countInBeatDurationSec = 60 / countInBpm;
+    const countInClickDurationSec = countInClickEnabled ? countInBeats * countInBeatDurationSec : 0;
+
+    const countInBacking1 = countInConfig.backing1 || {};
+    const countInBacking2 = countInConfig.backing2 || {};
+
+    const countInBacking1File = countInBacking1.enabled && countInBacking1.fileId
+      ? await getFileById(countInBacking1.fileId)
+      : null;
+    const countInBacking2File = countInBacking2.enabled && countInBacking2.fileId
+      ? await getFileById(countInBacking2.fileId)
+      : null;
+    const countInBacking1Buffer = countInBacking1File ? await decodeFileToAudioBuffer(decodeContext, countInBacking1File) : null;
+    const countInBacking2Buffer = countInBacking2File ? await decodeFileToAudioBuffer(decodeContext, countInBacking2File) : null;
+
+    const countInBackingDurationSec = Math.max(
+      countInBacking1Buffer?.duration || 0,
+      countInBacking2Buffer?.duration || 0
+    );
+    const countInWindowEnabled = countInClickEnabled || !!countInBacking1.enabled || !!countInBacking2.enabled;
+    const countInDurationSec = countInWindowEnabled
+      ? Math.max(countInClickDurationSec, countInBackingDurationSec)
+      : 0;
+
+    const mainClickBpm = Math.max(20, Number(mainClick.bpm) || 120);
+    const mainClickBeatDurationSec = 60 / mainClickBpm;
+    const mainClickBeatsPerBar = beatsPerBarFromSignature(mainClick.timeSignature || "4/4");
+    const mainClickSample = mainClick.sample || "beep";
+    const mainStrongSpec = resolveStrongBeatSpec(mainClickSample, mainClick.strongBeatSample || "rim", false);
+
+    const builtInSampleIds = new Set();
+    if (countInClickEnabled) {
+      builtInSampleIds.add(countInConfig.clickSample || "beep");
+    }
+    if (mainClickEnabled) {
+      builtInSampleIds.add(mainClickSample);
+      if (mainClick.strongBeatEnabled) {
+        builtInSampleIds.add(mainStrongSpec.sample);
+      }
+    }
+    const builtInBuffers = await loadBuiltInSampleBuffersForContext(decodeContext, [...builtInSampleIds]);
+
+    const masterDurationSec = Math.max(0, Number(track.lockedMeta?.lengthSec) || masterBuffer.duration || 0);
+    const timelineDurationSec = countInDurationSec + masterDurationSec;
+    const renderDurationSec = timelineDurationSec + RENDER_DURATION_PAD_SEC;
+    const frameCount = Math.max(1, Math.ceil(renderDurationSec * RENDER_SAMPLE_RATE));
+
+    options.onProgress?.(90, "Rendering master click stem...");
+    const clickContext = new OfflineAudioContext(2, frameCount, RENDER_SAMPLE_RATE);
+    const clickPan = splitOutputEnabled ? panValue(mainClick.channel || "right") : 0;
+    const countInSample = countInConfig.clickSample || "beep";
+
+    if (countInClickEnabled && countInBeats > 0) {
+      for (let beat = 0; beat < countInBeats; beat += 1) {
+        const when = beat * countInBeatDurationSec;
+        scheduleClickCueAt(
+          clickContext,
+          builtInBuffers.get(countInSample) || null,
+          countInSample,
+          clickPan,
+          when
+        );
+      }
+    }
+
+    if (mainClickEnabled && mainClickBeatDurationSec > 0.001 && masterDurationSec > 0) {
+      const clickEndAt = countInDurationSec + masterDurationSec;
+      for (let beat = 0, when = countInDurationSec; when < clickEndAt; beat += 1, when += mainClickBeatDurationSec) {
+        const isStrongBeat = !!mainClick.strongBeatEnabled && (beat % mainClickBeatsPerBar) === 0;
+        if (isStrongBeat) {
+          scheduleClickCueAt(
+            clickContext,
+            builtInBuffers.get(mainStrongSpec.sample) || null,
+            mainStrongSpec.sample,
+            clickPan,
+            when,
+            null,
+            { playbackRate: mainStrongSpec.playbackRate }
+          );
+        } else {
+          scheduleClickCueAt(
+            clickContext,
+            builtInBuffers.get(mainClickSample) || null,
+            mainClickSample,
+            clickPan,
+            when
+          );
+        }
+      }
+    }
+
+    const clickBuffer = await clickContext.startRendering();
+    options.throwIfCancelled?.();
+
+    options.onProgress?.(94, "Rendering master backing stem...");
+    const backingContext = new OfflineAudioContext(2, frameCount, RENDER_SAMPLE_RATE);
+
+    const countInLanes = [
+      { lane: countInBacking1, buffer: countInBacking1Buffer },
+      { lane: countInBacking2, buffer: countInBacking2Buffer }
+    ];
+    for (const laneEntry of countInLanes) {
+      if (!laneEntry.lane.enabled || !laneEntry.buffer) {
+        continue;
+      }
+      const source = backingContext.createBufferSource();
+      const panner = backingContext.createStereoPanner();
+      panner.pan.value = splitOutputEnabled ? panValue(laneEntry.lane.channel || "both") : 0;
+      source.buffer = laneEntry.buffer;
+      source.connect(panner).connect(backingContext.destination);
+      source.start(0);
+      if (laneEntry.buffer.duration > countInDurationSec + 0.05) {
+        source.stop(countInDurationSec + 0.05);
+      }
+    }
+
+    if (masterDurationSec > 0) {
+      const source = backingContext.createBufferSource();
+      const panner = backingContext.createStereoPanner();
+      panner.pan.value = splitOutputEnabled ? panValue(splitOutputConfig.audioChannel || "left") : 0;
+      source.buffer = masterBuffer;
+      source.connect(panner).connect(backingContext.destination);
+      source.start(countInDurationSec);
+    }
+
+    const backingBuffer = await backingContext.startRendering();
+    options.throwIfCancelled?.();
+
+    options.onProgress?.(97, "Saving master rendered files...");
+    const clickBlob = audioBufferToWavBlob(clickBuffer);
+    const backingBlob = audioBufferToWavBlob(backingBuffer);
+    const clickFileId = await saveFileToDb(new File([clickBlob], `master-click-stem-${crypto.randomUUID()}.wav`, { type: "audio/wav" }));
+    const backingFileId = await saveFileToDb(new File([backingBlob], `master-backing-stem-${crypto.randomUUID()}.wav`, { type: "audio/wav" }));
+    options.throwIfCancelled?.();
+
+    const previousClickId = track.masterRendered?.clickFileId;
+    const previousBackingId = track.masterRendered?.backingFileId;
+    if (previousClickId && previousClickId !== clickFileId) {
+      await deleteFileFromDb(previousClickId);
+    }
+    if (previousBackingId && previousBackingId !== backingFileId) {
+      await deleteFileFromDb(previousBackingId);
+    }
+
+    const validation = validateMasterRenderedTrack(timelineDurationSec, clickBuffer.duration, backingBuffer.duration);
+    return {
+      rendered: {
+        ready: true,
+        clickFileId,
+        backingFileId,
+        durationSec: timelineDurationSec,
+        countInDurationSec,
+        renderedAt: Date.now(),
+        fallbackMode: "live"
+      },
+      validation
+    };
+  } catch {
+    const fallbackDurationSec = Math.max(0, Number(track.lockedMeta?.lengthSec) || totalTrackSeconds(track));
+    return {
+      rendered: {
+        ready: false,
+        clickFileId: null,
+        backingFileId: null,
+        durationSec: fallbackDurationSec,
+        countInDurationSec: 0,
+        renderedAt: Date.now(),
+        fallbackMode: "live"
+      },
+      validation: {
+        ok: false,
+        expectedDurationSec: roundMs(fallbackDurationSec),
+        clickDurationSec: 0,
+        backingDurationSec: 0,
+        maxDeltaMs: null,
+        checks: ["Master render failed; live scheduler fallback will be used."]
+      }
+    };
+  } finally {
+    if (decodeContext && decodeContext.state !== "closed") {
+      decodeContext.close();
+    }
+  }
 }
 
 async function renderAndPersistBuiltTrackAssets(built, options = {}) {
@@ -5232,6 +6062,34 @@ function validateLoopRenderedTrack(loopDurationSec, renderedDurationSec) {
     expectedRenderDurationSec: roundMs(expectedRenderDurationSec),
     renderedDurationSec: roundMs(renderedDurationSec),
     deltaMs: roundMs(deltaMs),
+    checks
+  };
+}
+
+function validateMasterRenderedTrack(timelineDurationSec, clickDurationSec, backingDurationSec) {
+  const expectedRenderDurationSec = timelineDurationSec + RENDER_DURATION_PAD_SEC;
+  const clickDeltaMs = Math.abs((clickDurationSec - expectedRenderDurationSec) * 1000);
+  const backingDeltaMs = Math.abs((backingDurationSec - expectedRenderDurationSec) * 1000);
+  const maxDeltaMs = Math.max(clickDeltaMs, backingDeltaMs);
+  const checks = [];
+
+  if (clickDeltaMs > RENDER_VALIDATION_TOLERANCE_MS) {
+    checks.push(`Master click stem duration delta ${Math.round(clickDeltaMs)}ms exceeds tolerance ${RENDER_VALIDATION_TOLERANCE_MS}ms`);
+  }
+
+  if (backingDeltaMs > RENDER_VALIDATION_TOLERANCE_MS) {
+    checks.push(`Master backing stem duration delta ${Math.round(backingDeltaMs)}ms exceeds tolerance ${RENDER_VALIDATION_TOLERANCE_MS}ms`);
+  }
+
+  return {
+    ok: checks.length === 0,
+    expectedDurationSec: roundMs(timelineDurationSec),
+    expectedRenderDurationSec: roundMs(expectedRenderDurationSec),
+    clickDurationSec: roundMs(clickDurationSec),
+    backingDurationSec: roundMs(backingDurationSec),
+    clickDeltaMs: roundMs(clickDeltaMs),
+    backingDeltaMs: roundMs(backingDeltaMs),
+    maxDeltaMs: roundMs(maxDeltaMs),
     checks
   };
 }
