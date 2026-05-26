@@ -39,10 +39,23 @@ const QUICK_PICKER_SOUND_FIELD_IDS = new Set([
   "loopMainClickSampleInput",
   "loopStrongBeatClickSampleInput"
 ]);
+const QUICK_PICKER_BPM_FIELD_IDS = new Set([
+  "masterCountInBpmInput",
+  "masterMainClickBpmInput",
+  "countInBpmInput",
+  "loopCountInBpmInput",
+  "loopBpmInput"
+]);
 const QUICK_PICKER_HOLD_MS = 220;
 const QUICK_PICKER_STEP_PX = 44;
-const TRACK_DRAG_HOLD_MS = 300;
-const TRACK_DRAG_CANCEL_TOLERANCE_PX = 18;
+const TAP_TEMPO_RESET_GAP_MS = 2500;
+const TAP_TEMPO_MIN_INTERVAL_MS = 120;
+const TAP_TEMPO_MAX_INTERVAL_MS = 2000;
+const TRACK_DRAG_HOLD_MS = 220;
+const TRACK_DRAG_CANCEL_TOLERANCE_PX = 24;
+const MIX_LANES = ["click", "backing1", "backing2"];
+const MIX_DB_MIN = -40;
+const MIX_DB_MAX = 10;
 
 const appState = {
   currentSet: newEmptySet(),
@@ -52,6 +65,7 @@ const appState = {
   selectedTrackIndex: -1,
   playingTrackIndex: -1,
   playingHandle: null,
+  playbackPaused: false,
   confirmAction: null,
   renderStatusByTrackId: {},
   renderQueueRunning: false,
@@ -100,6 +114,8 @@ const appState = {
     sessionId: null,
     trackId: null,
     timerId: null,
+    paused: false,
+    pausedAtMs: 0,
     countInBeats: 0,
     beatDurationMs: 0,
     countInStartMs: 0,
@@ -112,6 +128,18 @@ const appState = {
     progressRatio: 0,
     remainingSec: 0
   },
+  mix: {
+    click: { db: 0, muted: false },
+    backing1: { db: 0, muted: false },
+    backing2: { db: 0, muted: false }
+  },
+  mixDrag: {
+    active: false,
+    lane: "",
+    pointerId: null,
+    fader: null
+  },
+  activeMixTargets: new Set(),
   backingEditor: {
     activeSlotKey: "",
     pendingFiles: {},
@@ -168,6 +196,7 @@ const appState = {
     pendingField: null,
     pendingStartY: 0,
     movedBeforeHold: false,
+    tapTempoTimes: [],
     suppressClickUntil: 0
   }
 };
@@ -182,8 +211,10 @@ const els = {
   playbackCueNumber: document.getElementById("playbackCueNumber"),
   addTrackBtn: document.getElementById("addTrackBtn"),
   transportPlayBtn: document.getElementById("transportPlayBtn"),
+  transportPauseBtn: document.getElementById("transportPauseBtn"),
   transportStopBtn: document.getElementById("transportStopBtn"),
   transportContinuousBtn: document.getElementById("transportContinuousBtn"),
+  mixBtn: document.getElementById("mixBtn"),
   renderAllBtn: document.getElementById("renderAllBtn"),
   newSetBtn: document.getElementById("newSetBtn"),
   loadSetBtn: document.getElementById("loadSetBtn"),
@@ -197,6 +228,16 @@ const els = {
   playModal: document.getElementById("playModal"),
   loadModal: document.getElementById("loadModal"),
   saveModal: document.getElementById("saveModal"),
+  mixModal: document.getElementById("mixModal"),
+  mixClickFader: document.getElementById("mixClickFader"),
+  mixBacking1Fader: document.getElementById("mixBacking1Fader"),
+  mixBacking2Fader: document.getElementById("mixBacking2Fader"),
+  mixClickDbValue: document.getElementById("mixClickDbValue"),
+  mixBacking1DbValue: document.getElementById("mixBacking1DbValue"),
+  mixBacking2DbValue: document.getElementById("mixBacking2DbValue"),
+  mixClickMuteBtn: document.getElementById("mixClickMuteBtn"),
+  mixBacking1MuteBtn: document.getElementById("mixBacking1MuteBtn"),
+  mixBacking2MuteBtn: document.getElementById("mixBacking2MuteBtn"),
   saveSetForm: document.getElementById("saveSetForm"),
   saveSetNameInput: document.getElementById("saveSetNameInput"),
   saveSetCancelBtn: document.getElementById("saveSetCancelBtn"),
@@ -304,7 +345,8 @@ const els = {
   backingModalFileInput: document.getElementById("backingModalFileInput"),
   quickPickerOverlay: document.getElementById("quickPickerOverlay"),
   quickPickerCard: document.getElementById("quickPickerCard"),
-  quickPickerRows: document.getElementById("quickPickerRows")
+  quickPickerRows: document.getElementById("quickPickerRows"),
+  quickPickerTapTempoBtn: document.getElementById("quickPickerTapTempoBtn")
 };
 
 init();
@@ -609,14 +651,21 @@ function wireEvents() {
   bind(document, "pointercancel", onQuickPickerPointerCancel);
   bind(els.quickPickerOverlay, "pointerdown", onQuickPickerOverlayPointerDown);
   bind(els.quickPickerOverlay, "click", onQuickPickerOverlayClick);
+  bind(els.quickPickerTapTempoBtn, "pointerdown", onQuickPickerTapTempoPointerDown);
+  bind(els.quickPickerTapTempoBtn, "click", onQuickPickerTapTempoClick);
   if (els.quickPickerOverlay) {
     els.quickPickerOverlay.addEventListener("wheel", onQuickPickerWheel, { passive: false });
   }
 
   bind(els.transportPlayBtn, "click", onPlayCurrentTrack);
+  bind(els.transportPauseBtn, "click", onPauseCurrentTrack);
   bind(els.transportStopBtn, "click", () => {
     stopPlayback();
     render();
+  });
+  bind(els.mixBtn, "click", () => {
+    syncMixModalUI();
+    openModal(els.mixModal);
   });
   bind(els.transportContinuousBtn, "click", () => {
     appState.currentSet.continuousPlay = !appState.currentSet.continuousPlay;
@@ -626,6 +675,15 @@ function wireEvents() {
     queueEnsureCurrentSetRendered({ forceAll: true, showBanner: true });
     render();
   });
+  [els.mixClickFader, els.mixBacking1Fader, els.mixBacking2Fader].forEach((fader) => {
+    bind(fader, "pointerdown", onMixFaderPointerDown);
+  });
+  [els.mixClickMuteBtn, els.mixBacking1MuteBtn, els.mixBacking2MuteBtn].forEach((button) => {
+    bind(button, "click", onMixMuteToggle);
+  });
+  bind(document, "pointermove", onMixFaderPointerMove);
+  bind(document, "pointerup", onMixFaderPointerUp);
+  bind(document, "pointercancel", onMixFaderPointerUp);
 
   bind(els.setSearchInput, "input", renderLoadList);
   bind(els.setSortInput, "change", renderLoadList);
@@ -862,7 +920,13 @@ function render() {
     els.transportContinuousBtn.setAttribute("aria-pressed", String(!!appState.currentSet.continuousPlay));
   }
   if (els.transportPlayBtn) {
-    els.transportPlayBtn.disabled = appState.selectedTrackIndex < 0;
+    const trackSelected = appState.selectedTrackIndex >= 0;
+    els.transportPlayBtn.disabled = !trackSelected || (!!appState.playingHandle && !appState.playbackPaused);
+  }
+  if (els.transportPauseBtn) {
+    const canPause = !!appState.playingHandle && !appState.playbackPaused && typeof appState.playingHandle.pause === "function";
+    els.transportPauseBtn.disabled = !canPause;
+    els.transportPauseBtn.classList.toggle("active", !!appState.playbackPaused);
   }
   if (els.transportStopBtn) {
     els.transportStopBtn.disabled = !appState.playingHandle;
@@ -977,7 +1041,7 @@ function renderTrackRows() {
       </div>
       <div class="track-main">
         <div class="track-title-row">
-          <h2>${escapeHtml(track.displayName)}</h2>
+          <h2>${index + 1}. ${escapeHtml(track.displayName)}</h2>
           <span class="render-chip ${escapeAttr(status.className)}">${escapeHtml(status.label)}</span>
         </div>
         <div class="track-time">${trackDuration}</div>
@@ -1024,7 +1088,11 @@ function renderTrackRows() {
     return row;
   });
 
-  els.trackList.replaceChildren(...rows);
+  if (els.addTrackBtn) {
+    els.trackList.replaceChildren(...rows, els.addTrackBtn);
+  } else {
+    els.trackList.replaceChildren(...rows);
+  }
 }
 
 function getTrackPlaybackState(track, index, baseDurationSec) {
@@ -1217,6 +1285,8 @@ function startPlaybackVisual(track, sessionId, options = {}) {
   appState.playbackVisual.active = true;
   appState.playbackVisual.sessionId = sessionId;
   appState.playbackVisual.trackId = track.id;
+  appState.playbackVisual.paused = false;
+  appState.playbackVisual.pausedAtMs = 0;
   appState.playbackVisual.countInBeats = countInBeats;
   appState.playbackVisual.beatDurationMs = beatDurationMs;
   appState.playbackVisual.countInStartMs = countInStartMs;
@@ -1246,6 +1316,8 @@ function resetPlaybackVisual() {
   appState.playbackVisual.active = false;
   appState.playbackVisual.sessionId = null;
   appState.playbackVisual.trackId = null;
+  appState.playbackVisual.paused = false;
+  appState.playbackVisual.pausedAtMs = 0;
   appState.playbackVisual.countInBeats = 0;
   appState.playbackVisual.beatDurationMs = 0;
   appState.playbackVisual.countInStartMs = 0;
@@ -1423,6 +1495,7 @@ function beginTrackDrag(event, row, index) {
   drag.sourceRow = row;
 
   if (drag.pointerType === "touch" || drag.pointerType === "pen") {
+    event.preventDefault();
     // Prevent touch gestures (including pull-to-refresh) from hijacking hold-to-drag.
     row.style.touchAction = "none";
     drag.holdTimerId = window.setTimeout(() => {
@@ -1439,9 +1512,9 @@ function beginTrackDrag(event, row, index) {
     // Some browsers may throw when capture isn't available.
   }
 
-  row.addEventListener("pointermove", onTrackDragMove);
-  row.addEventListener("pointerup", onTrackDragEnd);
-  row.addEventListener("pointercancel", onTrackDragCancel);
+  document.addEventListener("pointermove", onTrackDragMove);
+  document.addEventListener("pointerup", onTrackDragEnd);
+  document.addEventListener("pointercancel", onTrackDragCancel);
 }
 
 function onTrackDragMove(event) {
@@ -1453,6 +1526,7 @@ function onTrackDragMove(event) {
   const touchLikePointer = drag.pointerType === "touch" || drag.pointerType === "pen";
   const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
   if (!drag.active && touchLikePointer) {
+    event.preventDefault();
     if (distance > TRACK_DRAG_CANCEL_TOLERANCE_PX) {
       clearTrackDragHoldTimer();
     }
@@ -1523,18 +1597,27 @@ function onTrackDragCancel(event) {
 
 function clearTrackDragState() {
   const drag = appState.dragReorder;
+  const pointerId = drag.pointerId;
   clearTrackDragHoldTimer();
 
+  document.removeEventListener("pointermove", onTrackDragMove);
+  document.removeEventListener("pointerup", onTrackDragEnd);
+  document.removeEventListener("pointercancel", onTrackDragCancel);
+
   if (drag.sourceRow) {
+    if (pointerId !== null && pointerId !== undefined) {
+      try {
+        drag.sourceRow.releasePointerCapture(pointerId);
+      } catch {
+        // Ignore capture release failures.
+      }
+    }
     drag.sourceRow.classList.remove("dragging", "floating-drag");
     drag.sourceRow.style.left = "";
     drag.sourceRow.style.top = "";
     drag.sourceRow.style.width = "";
     drag.sourceRow.style.height = "";
     drag.sourceRow.style.touchAction = "";
-    drag.sourceRow.removeEventListener("pointermove", onTrackDragMove);
-    drag.sourceRow.removeEventListener("pointerup", onTrackDragEnd);
-    drag.sourceRow.removeEventListener("pointercancel", onTrackDragCancel);
   }
 
   if (drag.placeholder) {
@@ -2683,6 +2766,7 @@ function closeQuickPicker() {
   picker.movedBeforeHold = false;
   picker.startY = 0;
   picker.gestureStartSelection = 0;
+  picker.tapTempoTimes = [];
   if (els.quickPickerRows) {
     els.quickPickerRows.replaceChildren();
   }
@@ -2693,10 +2777,110 @@ function closeQuickPicker() {
   if (els.quickPickerCard) {
     els.quickPickerCard.classList.remove("sound-mode");
   }
+  if (els.quickPickerTapTempoBtn) {
+    els.quickPickerTapTempoBtn.hidden = true;
+    els.quickPickerTapTempoBtn.textContent = "TAP TEMPO";
+  }
 }
 
 function isQuickPickerSoundField(field) {
   return !!field && QUICK_PICKER_SOUND_FIELD_IDS.has(field.id || "");
+}
+
+function isQuickPickerBpmField(field) {
+  if (!field) {
+    return false;
+  }
+  if (QUICK_PICKER_BPM_FIELD_IDS.has(field.id || "")) {
+    return true;
+  }
+  return !!field.classList?.contains("section-bpm");
+}
+
+function syncQuickPickerTapTempoButton() {
+  if (!els.quickPickerTapTempoBtn) {
+    return;
+  }
+
+  const picker = appState.quickPicker;
+  const visible = picker.active
+    && picker.kind === "number"
+    && isQuickPickerBpmField(picker.field);
+  els.quickPickerTapTempoBtn.hidden = !visible;
+  if (!visible) {
+    els.quickPickerTapTempoBtn.textContent = "TAP TEMPO";
+    picker.tapTempoTimes = [];
+  }
+}
+
+function applyTapTempoBpm(tempoBpm) {
+  const picker = appState.quickPicker;
+  if (!picker.active || picker.kind !== "number") {
+    return;
+  }
+
+  const step = picker.step || 1;
+  const snapped = clamp(Math.round(tempoBpm / step) * step, picker.min, picker.max);
+  if (snapped !== picker.selectedIndex) {
+    picker.selectedIndex = snapped;
+    picker.gestureStartSelection = snapped;
+    applyQuickPickerSelectionToField();
+    renderQuickPickerRows();
+  }
+}
+
+function onQuickPickerTapTempoPointerDown(event) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function onQuickPickerTapTempoClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const picker = appState.quickPicker;
+  if (!picker.active || picker.kind !== "number" || !isQuickPickerBpmField(picker.field)) {
+    return;
+  }
+
+  const nowMs = performance.now();
+  let taps = picker.tapTempoTimes || [];
+  const lastTap = taps[taps.length - 1] ?? 0;
+  if (lastTap > 0 && (nowMs - lastTap) > TAP_TEMPO_RESET_GAP_MS) {
+    taps = [];
+  }
+
+  taps.push(nowMs);
+  if (taps.length > 8) {
+    taps = taps.slice(-8);
+  }
+  picker.tapTempoTimes = taps;
+
+  if (taps.length < 2) {
+    return;
+  }
+
+  const intervals = [];
+  for (let i = 1; i < taps.length; i += 1) {
+    const deltaMs = taps[i] - taps[i - 1];
+    if (deltaMs >= TAP_TEMPO_MIN_INTERVAL_MS && deltaMs <= TAP_TEMPO_MAX_INTERVAL_MS) {
+      intervals.push(deltaMs);
+    }
+  }
+
+  if (!intervals.length) {
+    return;
+  }
+
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const trimmed = sorted.length >= 5 ? sorted.slice(1, -1) : sorted;
+  const averageMs = trimmed.reduce((sum, value) => sum + value, 0) / trimmed.length;
+  if (!Number.isFinite(averageMs) || averageMs <= 0) {
+    return;
+  }
+
+  const bpm = 60000 / averageMs;
+  applyTapTempoBpm(bpm);
 }
 
 function clamp(value, min, max) {
@@ -2853,6 +3037,7 @@ function openQuickPicker(field, options = {}) {
 
   applyQuickPickerSelectionToField();
   renderQuickPickerRows();
+  syncQuickPickerTapTempoButton();
 
   els.quickPickerOverlay.classList.remove("hidden");
   els.quickPickerOverlay.setAttribute("aria-hidden", "false");
@@ -3126,7 +3311,7 @@ function addSectionRow(section = {}) {
     </div>
     <div class="section-cell backing">
       <div class="section-field-label">Backing 1</div>
-      <div class="section-backing-controls">
+      <div class="section-backing-controls section-backing-controls-backing1">
         <button class="audio-btn" type="button" data-backing-slot="section:0:1" aria-label="Configure section backing 1 audio">
           <img src="assets/audio-icon.png" alt="Audio">
         </button>
@@ -3135,7 +3320,7 @@ function addSectionRow(section = {}) {
     </div>
     <div class="section-cell backing">
       <div class="section-field-label">Backing 2</div>
-      <div class="section-backing-controls">
+      <div class="section-backing-controls section-backing-controls-backing2">
         <button class="audio-btn" type="button" data-backing-slot="section:0:2" aria-label="Configure section backing 2 audio">
           <img src="assets/audio-icon.png" alt="Audio">
         </button>
@@ -4154,9 +4339,317 @@ function getEditingTrack() {
   return appState.currentSet.tracks.find((track) => track.id === appState.editingTrackId) || null;
 }
 
+function clampMixDb(value) {
+  return Math.max(MIX_DB_MIN, Math.min(MIX_DB_MAX, Math.round(Number(value) || 0)));
+}
+
+function mixDbToLinear(db) {
+  return Math.pow(10, clampMixDb(db) / 20);
+}
+
+function currentMixLinearForLane(lane) {
+  const laneState = appState.mix[lane] || { db: 0, muted: false };
+  if (laneState.muted) {
+    return 0;
+  }
+  return mixDbToLinear(laneState.db);
+}
+
+function applyMixToActiveTargets() {
+  appState.activeMixTargets.forEach((target) => {
+    target.apply?.();
+  });
+}
+
+function createMixRack(context) {
+  const clickGain = context.createGain();
+  const backing1Gain = context.createGain();
+  const backing2Gain = context.createGain();
+  clickGain.connect(context.destination);
+  backing1Gain.connect(context.destination);
+  backing2Gain.connect(context.destination);
+
+  const target = {
+    apply: () => {
+      clickGain.gain.setValueAtTime(currentMixLinearForLane("click"), context.currentTime);
+      backing1Gain.gain.setValueAtTime(currentMixLinearForLane("backing1"), context.currentTime);
+      backing2Gain.gain.setValueAtTime(currentMixLinearForLane("backing2"), context.currentTime);
+    }
+  };
+  appState.activeMixTargets.add(target);
+  target.apply();
+
+  return {
+    clickGain,
+    backing1Gain,
+    backing2Gain,
+    dispose: () => {
+      appState.activeMixTargets.delete(target);
+      clickGain.disconnect();
+      backing1Gain.disconnect();
+      backing2Gain.disconnect();
+    }
+  };
+}
+
+function connectMediaAudioToLane(context, audio, pan, lane, mixRack) {
+  const source = context.createMediaElementSource(audio);
+  const panner = context.createStereoPanner();
+  panner.pan.value = pan;
+  const output = lane === "click"
+    ? mixRack.clickGain
+    : (lane === "backing2" ? mixRack.backing2Gain : mixRack.backing1Gain);
+  source.connect(panner).connect(output);
+  return { source, panner };
+}
+
+function createPausableTimeout(callback, delayMs) {
+  let remaining = Math.max(0, Number(delayMs) || 0);
+  let timerId = null;
+  let startedAt = 0;
+
+  const schedule = () => {
+    if (remaining <= 0 || timerId) {
+      return;
+    }
+    startedAt = performance.now();
+    timerId = setTimeout(() => {
+      timerId = null;
+      remaining = 0;
+      callback();
+    }, remaining);
+  };
+
+  schedule();
+
+  return {
+    pause() {
+      if (!timerId) {
+        return;
+      }
+      clearTimeout(timerId);
+      timerId = null;
+      remaining = Math.max(0, remaining - (performance.now() - startedAt));
+    },
+    resume() {
+      schedule();
+    },
+    clear() {
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+      remaining = 0;
+    }
+  };
+}
+
+function mixDbToTopPercent(db) {
+  const clamped = clampMixDb(db);
+  const span = MIX_DB_MAX - MIX_DB_MIN;
+  return ((MIX_DB_MAX - clamped) / span) * 100;
+}
+
+function mixTopPercentToDb(topPercent) {
+  const clampedPercent = Math.max(0, Math.min(100, Number(topPercent) || 0));
+  const span = MIX_DB_MAX - MIX_DB_MIN;
+  return clampMixDb(MIX_DB_MAX - ((clampedPercent / 100) * span));
+}
+
+function formatMixDb(db) {
+  const value = clampMixDb(db);
+  return value >= 0 ? `+${value}` : String(value);
+}
+
+function getMixFaderByLane(lane) {
+  if (lane === "click") {
+    return els.mixClickFader;
+  }
+  if (lane === "backing1") {
+    return els.mixBacking1Fader;
+  }
+  if (lane === "backing2") {
+    return els.mixBacking2Fader;
+  }
+  return null;
+}
+
+function getMixValueNodeByLane(lane) {
+  if (lane === "click") {
+    return els.mixClickDbValue;
+  }
+  if (lane === "backing1") {
+    return els.mixBacking1DbValue;
+  }
+  if (lane === "backing2") {
+    return els.mixBacking2DbValue;
+  }
+  return null;
+}
+
+function setMixLaneDb(lane, nextDb) {
+  if (!MIX_LANES.includes(lane)) {
+    return;
+  }
+  appState.mix[lane].db = clampMixDb(nextDb);
+  syncMixModalUI();
+  applyMixToActiveTargets();
+}
+
+function setMixLaneDbFromClientY(lane, fader, clientY) {
+  if (!fader || !MIX_LANES.includes(lane)) {
+    return;
+  }
+  const rect = fader.getBoundingClientRect();
+  if (rect.height <= 0) {
+    return;
+  }
+  const topPercent = ((clientY - rect.top) / rect.height) * 100;
+  setMixLaneDb(lane, mixTopPercentToDb(topPercent));
+}
+
+function syncMixModalUI() {
+  MIX_LANES.forEach((lane) => {
+    const fader = getMixFaderByLane(lane);
+    const valueNode = getMixValueNodeByLane(lane);
+    const dbValue = clampMixDb(appState.mix[lane].db);
+
+    if (fader) {
+      fader.style.setProperty("--mix-thumb-top", `${mixDbToTopPercent(dbValue)}%`);
+      fader.setAttribute("aria-valuemin", String(MIX_DB_MIN));
+      fader.setAttribute("aria-valuemax", String(MIX_DB_MAX));
+      fader.setAttribute("aria-valuenow", String(dbValue));
+      fader.setAttribute("aria-valuetext", `${formatMixDb(dbValue)} dB`);
+      fader.setAttribute("role", "slider");
+      fader.classList.toggle("muted", !!appState.mix[lane]?.muted);
+    }
+    if (valueNode) {
+      valueNode.textContent = formatMixDb(dbValue);
+    }
+  });
+
+  [els.mixClickMuteBtn, els.mixBacking1MuteBtn, els.mixBacking2MuteBtn].forEach((button) => {
+    if (!button) {
+      return;
+    }
+    const lane = button.dataset.lane;
+    const muted = !!appState.mix[lane]?.muted;
+    button.setAttribute("aria-pressed", String(muted));
+  });
+}
+
+function onMixFaderPointerDown(event) {
+  const fader = event.currentTarget;
+  const lane = fader?.dataset?.lane;
+  if (!MIX_LANES.includes(lane) || !fader) {
+    return;
+  }
+
+  event.preventDefault();
+  appState.mixDrag.active = true;
+  appState.mixDrag.lane = lane;
+  appState.mixDrag.pointerId = event.pointerId;
+  appState.mixDrag.fader = fader;
+
+  try {
+    fader.setPointerCapture(event.pointerId);
+  } catch {
+    // Pointer capture may not be available.
+  }
+
+  setMixLaneDbFromClientY(lane, fader, event.clientY);
+}
+
+function onMixFaderPointerMove(event) {
+  const drag = appState.mixDrag;
+  if (!drag.active || drag.pointerId !== event.pointerId) {
+    return;
+  }
+  setMixLaneDbFromClientY(drag.lane, drag.fader, event.clientY);
+}
+
+function onMixFaderPointerUp(event) {
+  const drag = appState.mixDrag;
+  if (!drag.active || drag.pointerId !== event.pointerId) {
+    return;
+  }
+
+  try {
+    drag.fader?.releasePointerCapture(event.pointerId);
+  } catch {
+    // Ignore missing capture support.
+  }
+
+  drag.active = false;
+  drag.lane = "";
+  drag.pointerId = null;
+  drag.fader = null;
+}
+
+function onMixMuteToggle(event) {
+  const lane = event.currentTarget?.dataset?.lane;
+  if (!MIX_LANES.includes(lane)) {
+    return;
+  }
+  appState.mix[lane].muted = !appState.mix[lane].muted;
+  syncMixModalUI();
+  applyMixToActiveTargets();
+}
+
+function pausePlaybackVisual() {
+  if (!appState.playbackVisual.active || appState.playbackVisual.paused) {
+    return;
+  }
+  appState.playbackVisual.paused = true;
+  appState.playbackVisual.pausedAtMs = performance.now();
+  stopPlaybackVisualTimer();
+}
+
+function resumePlaybackVisual() {
+  const visual = appState.playbackVisual;
+  if (!visual.active || !visual.paused) {
+    return;
+  }
+
+  const nowMs = performance.now();
+  const deltaMs = Math.max(0, nowMs - visual.pausedAtMs);
+  visual.countInStartMs += deltaMs;
+  visual.countInEndMs += deltaMs;
+  visual.trackStartMs += deltaMs;
+  visual.trackEndMs += deltaMs;
+  visual.paused = false;
+  visual.pausedAtMs = 0;
+  tickPlaybackVisual();
+  visual.timerId = window.setInterval(tickPlaybackVisual, 50);
+}
+
+function onPauseCurrentTrack() {
+  const handle = appState.playingHandle;
+  if (!handle || appState.playbackPaused || typeof handle.pause !== "function") {
+    return;
+  }
+  handle.pause();
+  appState.playbackPaused = true;
+  pausePlaybackVisual();
+  render();
+}
+
 async function onPlayCurrentTrack() {
   if (appState.selectedTrackIndex < 0) {
     window.alert("Select a track first.");
+    return;
+  }
+
+  if (
+    appState.playingHandle
+    && appState.playbackPaused
+    && appState.playingTrackIndex === appState.selectedTrackIndex
+    && typeof appState.playingHandle.resume === "function"
+  ) {
+    appState.playingHandle.resume();
+    appState.playbackPaused = false;
+    resumePlaybackVisual();
+    render();
     return;
   }
 
@@ -4207,11 +4700,13 @@ async function playMasterTrack(track, sessionId) {
   const timers = [];
   const activeAudios = [];
   let countInContext = null;
+  let mixRack = null;
   let mainClickIntervalId = null;
   let audio = null;
   let audioUrl = null;
   let masterAudioSource = null;
   let masterAudioPanner = null;
+  let masterAudioConnection = null;
   let diagDumped = false;
   const countInConfig = track.masterCountIn || {};
   const splitOutputConfig = track.masterSplitOutput || {};
@@ -4223,6 +4718,13 @@ async function playMasterTrack(track, sessionId) {
   const countInBpm = Number(countInConfig.bpm) || 120;
   const durationSec = Number(track.lockedMeta?.lengthSec) || totalTrackSeconds(track);
   let playbackVisualStarted = false;
+
+  const ensureMasterMixRack = () => {
+    if (!countInContext || countInContext.state === "closed" || mixRack) {
+      return;
+    }
+    mixRack = createMixRack(countInContext);
+  };
 
   const stop = () => {
     cancelled = true;
@@ -4247,11 +4749,20 @@ async function playMasterTrack(track, sessionId) {
       masterAudioPanner.disconnect();
       masterAudioPanner = null;
     }
+    if (masterAudioConnection) {
+      masterAudioConnection.source.disconnect();
+      masterAudioConnection.panner.disconnect();
+      masterAudioConnection = null;
+    }
     activeAudios.forEach(({ audio: extraAudio, url }) => {
       extraAudio.pause();
       extraAudio.currentTime = 0;
       URL.revokeObjectURL(url);
     });
+    if (mixRack) {
+      mixRack.dispose();
+      mixRack = null;
+    }
     if (countInContext && countInContext.state !== "closed") {
       countInContext.close();
     }
@@ -4260,10 +4771,45 @@ async function playMasterTrack(track, sessionId) {
       diagDumped = true;
     }
     appState.playingHandle = null;
+    appState.playbackPaused = false;
     render();
   };
 
-  appState.playingHandle = { stop };
+  const pause = () => {
+    if (cancelled || appState.playbackPaused) {
+      return;
+    }
+    if (countInContext && countInContext.state === "running") {
+      countInContext.suspend();
+    }
+    if (audio && !audio.paused) {
+      audio.pause();
+    }
+    activeAudios.forEach(({ audio: extraAudio }) => {
+      if (!extraAudio.paused) {
+        extraAudio.pause();
+      }
+    });
+  };
+
+  const resume = () => {
+    if (cancelled) {
+      return;
+    }
+    if (countInContext && countInContext.state === "suspended") {
+      countInContext.resume();
+    }
+    if (audio && audio.paused) {
+      audio.play().catch(() => {});
+    }
+    activeAudios.forEach(({ audio: extraAudio }) => {
+      if (extraAudio.paused && extraAudio.currentTime > 0 && !extraAudio.ended) {
+        extraAudio.play().catch(() => {});
+      }
+    });
+  };
+
+  appState.playingHandle = { stop, pause, resume };
   render();
 
   const masterCountInBacking1 = countInConfig.backing1 || {};
@@ -4275,6 +4821,7 @@ async function playMasterTrack(track, sessionId) {
     if (countInContext.state === "suspended") {
       await countInContext.resume();
     }
+    ensureMasterMixRack();
 
     const countInSample = countInConfig.clickSample || "beep";
     const builtInClickBuffers = await loadBuiltInSampleBuffersForContext(countInContext, [countInSample]);
@@ -4299,14 +4846,17 @@ async function playMasterTrack(track, sessionId) {
             sessionId,
             label: `master count-in beat ${beat + 1}`,
             clock: countInClock
-          }
+          },
+          { outputNode: mixRack.clickGain }
         );
       }
     }
 
     const backingStartAt = countInClickEnabled && firstBeatAt !== null ? firstBeatAt : timelineStartAt;
     const countInLaneRuntime = [];
-    for (const lane of [masterCountInBacking1, masterCountInBacking2]) {
+    const masterCountInLanes = [masterCountInBacking1, masterCountInBacking2];
+    for (let laneIndex = 0; laneIndex < masterCountInLanes.length; laneIndex += 1) {
+      const lane = masterCountInLanes[laneIndex];
       if (!lane.enabled || !lane.fileId) {
         continue;
       }
@@ -4317,6 +4867,7 @@ async function playMasterTrack(track, sessionId) {
       const laneMeta = await getAudioMetadata(laneFile);
       countInLaneRuntime.push({
         lane,
+        laneIndex,
         file: laneFile,
         durationSec: Math.max(0, Number(laneMeta.durationSec) || 0)
       });
@@ -4336,10 +4887,13 @@ async function playMasterTrack(track, sessionId) {
         }
         const url = URL.createObjectURL(entry.file);
         const laneAudio = new Audio(url);
-        const source = countInContext.createMediaElementSource(laneAudio);
-        const panner = countInContext.createStereoPanner();
-        panner.pan.value = panValue(entry.lane.channel || "both");
-        source.connect(panner).connect(countInContext.destination);
+        connectMediaAudioToLane(
+          countInContext,
+          laneAudio,
+          panValue(entry.lane.channel || "both"),
+          entry.laneIndex === 1 ? "backing2" : "backing1",
+          mixRack
+        );
         laneAudio.play();
         activeAudios.push({ audio: laneAudio, url });
       }, delayMs);
@@ -4385,6 +4939,7 @@ async function playMasterTrack(track, sessionId) {
   if (countInContext.state === "suspended") {
     await countInContext.resume();
   }
+  ensureMasterMixRack();
 
   if (masterMainClickEnabled) {
     const masterMainClick = countInConfig.mainClick || {};
@@ -4427,7 +4982,10 @@ async function playMasterTrack(track, sessionId) {
               label: "master main strong beat",
               clock: masterMainClickClock
             },
-            { playbackRate: masterStrongBeatSpec.playbackRate }
+            {
+              playbackRate: masterStrongBeatSpec.playbackRate,
+              outputNode: mixRack.clickGain
+            }
           );
         } else {
           scheduleClickCueAt(
@@ -4440,7 +4998,8 @@ async function playMasterTrack(track, sessionId) {
               sessionId,
               label: "master main click beat",
               clock: masterMainClickClock
-            }
+            },
+            { outputNode: mixRack.clickGain }
           );
         }
 
@@ -4460,10 +5019,9 @@ async function playMasterTrack(track, sessionId) {
     }, { once: true });
   }
 
-  masterAudioSource = countInContext.createMediaElementSource(audio);
-  masterAudioPanner = countInContext.createStereoPanner();
-  masterAudioPanner.pan.value = masterAudioPan;
-  masterAudioSource.connect(masterAudioPanner).connect(countInContext.destination);
+  masterAudioConnection = connectMediaAudioToLane(countInContext, audio, masterAudioPan, "backing1", mixRack);
+  masterAudioSource = masterAudioConnection.source;
+  masterAudioPanner = masterAudioConnection.panner;
 
   audio.addEventListener("ended", () => {
     if (mainClickIntervalId !== null) {
@@ -4482,6 +5040,15 @@ async function playMasterTrack(track, sessionId) {
       masterAudioPanner.disconnect();
       masterAudioPanner = null;
     }
+    if (masterAudioConnection) {
+      masterAudioConnection.source.disconnect();
+      masterAudioConnection.panner.disconnect();
+      masterAudioConnection = null;
+    }
+    if (mixRack) {
+      mixRack.dispose();
+      mixRack = null;
+    }
     if (countInContext && countInContext.state !== "closed") {
       countInContext.close();
     }
@@ -4491,6 +5058,7 @@ async function playMasterTrack(track, sessionId) {
     }
     resetPlaybackVisual();
     appState.playingHandle = null;
+    appState.playbackPaused = false;
     render();
     if (appState.currentSet.continuousPlay) {
       playNextIfAvailable();
@@ -4503,22 +5071,70 @@ async function playMasterTrack(track, sessionId) {
 async function playMasterTrackRendered(track, sessionId) {
   let cancelled = false;
   const activeAudios = [];
+  const activeConnections = [];
   const rendered = track.masterRendered || {};
+  const context = new (window.AudioContext || window.webkitAudioContext)();
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+  const mixRack = createMixRack(context);
+  let stopTimer = null;
 
   const stop = () => {
     cancelled = true;
+    stopTimer?.clear();
+    stopTimer = null;
     activeAudios.forEach(({ audio, url }) => {
       audio.pause();
       audio.currentTime = 0;
       URL.revokeObjectURL(url);
     });
+    activeConnections.forEach((connection) => {
+      connection.source.disconnect();
+      connection.panner.disconnect();
+    });
+    mixRack.dispose();
+    if (context.state !== "closed") {
+      context.close();
+    }
     appState.playingHandle = null;
+    appState.playbackPaused = false;
     resetPlaybackVisual();
     dumpDiagnosticSummary(sessionId);
     render();
   };
 
-  appState.playingHandle = { stop };
+  const pause = () => {
+    if (cancelled || appState.playbackPaused) {
+      return;
+    }
+    if (context.state === "running") {
+      context.suspend();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (!audio.paused) {
+        audio.pause();
+      }
+    });
+    stopTimer?.pause();
+  };
+
+  const resume = () => {
+    if (cancelled) {
+      return;
+    }
+    if (context.state === "suspended") {
+      context.resume();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (audio.paused && audio.currentTime > 0 && !audio.ended) {
+        audio.play().catch(() => {});
+      }
+    });
+    stopTimer?.resume();
+  };
+
+  appState.playingHandle = { stop, pause, resume };
   render();
 
   const clickFile = rendered.clickFileId ? await getFileById(rendered.clickFileId) : null;
@@ -4540,6 +5156,7 @@ async function playMasterTrackRendered(track, sessionId) {
     if (clickFile) {
       const clickUrl = URL.createObjectURL(clickFile);
       const clickAudio = new Audio(clickUrl);
+      activeConnections.push(connectMediaAudioToLane(context, clickAudio, 0, "click", mixRack));
       activeAudios.push({ audio: clickAudio, url: clickUrl });
       playPromises.push(clickAudio.play());
     }
@@ -4547,6 +5164,7 @@ async function playMasterTrackRendered(track, sessionId) {
     if (backingFile) {
       const backingUrl = URL.createObjectURL(backingFile);
       const backingAudio = new Audio(backingUrl);
+      activeConnections.push(connectMediaAudioToLane(context, backingAudio, 0, "backing1", mixRack));
       activeAudios.push({ audio: backingAudio, url: backingUrl });
       playPromises.push(backingAudio.play());
     }
@@ -4585,7 +5203,7 @@ async function playMasterTrackRendered(track, sessionId) {
     trackStartWallMs: playbackStartWallMs + countInDurationMs
   });
 
-  setTimeout(() => {
+  stopTimer = createPausableTimeout(() => {
     if (cancelled) {
       return;
     }
@@ -4623,22 +5241,70 @@ async function playBuiltTrack(track, sessionId) {
 async function playBuiltTrackRendered(track, sessionId) {
   let cancelled = false;
   const activeAudios = [];
+  const activeConnections = [];
   const rendered = track.built?.rendered || {};
+  const context = new (window.AudioContext || window.webkitAudioContext)();
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+  const mixRack = createMixRack(context);
+  let stopTimer = null;
 
   const stop = () => {
     cancelled = true;
+    stopTimer?.clear();
+    stopTimer = null;
     activeAudios.forEach(({ audio, url }) => {
       audio.pause();
       audio.currentTime = 0;
       URL.revokeObjectURL(url);
     });
+    activeConnections.forEach((connection) => {
+      connection.source.disconnect();
+      connection.panner.disconnect();
+    });
+    mixRack.dispose();
+    if (context.state !== "closed") {
+      context.close();
+    }
     appState.playingHandle = null;
+    appState.playbackPaused = false;
     resetPlaybackVisual();
     dumpDiagnosticSummary(sessionId);
     render();
   };
 
-  appState.playingHandle = { stop };
+  const pause = () => {
+    if (cancelled || appState.playbackPaused) {
+      return;
+    }
+    if (context.state === "running") {
+      context.suspend();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (!audio.paused) {
+        audio.pause();
+      }
+    });
+    stopTimer?.pause();
+  };
+
+  const resume = () => {
+    if (cancelled) {
+      return;
+    }
+    if (context.state === "suspended") {
+      context.resume();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (audio.paused && audio.currentTime > 0 && !audio.ended) {
+        audio.play().catch(() => {});
+      }
+    });
+    stopTimer?.resume();
+  };
+
+  appState.playingHandle = { stop, pause, resume };
   render();
 
   const clickFile = rendered.clickFileId ? await getFileById(rendered.clickFileId) : null;
@@ -4660,6 +5326,7 @@ async function playBuiltTrackRendered(track, sessionId) {
     if (clickFile) {
       const clickUrl = URL.createObjectURL(clickFile);
       const clickAudio = new Audio(clickUrl);
+      activeConnections.push(connectMediaAudioToLane(context, clickAudio, 0, "click", mixRack));
       activeAudios.push({ audio: clickAudio, url: clickUrl });
       playPromises.push(clickAudio.play());
     }
@@ -4667,6 +5334,7 @@ async function playBuiltTrackRendered(track, sessionId) {
     if (backingFile) {
       const backingUrl = URL.createObjectURL(backingFile);
       const backingAudio = new Audio(backingUrl);
+      activeConnections.push(connectMediaAudioToLane(context, backingAudio, 0, "backing1", mixRack));
       activeAudios.push({ audio: backingAudio, url: backingUrl });
       playPromises.push(backingAudio.play());
     }
@@ -4702,7 +5370,7 @@ async function playBuiltTrackRendered(track, sessionId) {
     trackStartWallMs: playbackStartWallMs + countInDurationMs
   });
 
-  setTimeout(() => {
+  stopTimer = createPausableTimeout(() => {
     if (cancelled) {
       return;
     }
@@ -4731,10 +5399,12 @@ async function playBuiltTrackLive(track, sessionId) {
   if (context.state === "suspended") {
     await context.resume();
   }
+  const mixRack = createMixRack(context);
 
   let cancelled = false;
   const timers = [];
   const activeAudios = [];
+  let stopTimer = null;
   const durationSec = totalTrackSeconds(track);
   const sections = built.sections || [];
 
@@ -4772,7 +5442,9 @@ async function playBuiltTrackLive(track, sessionId) {
     : 0;
 
   const countInLaneRuntime = [];
-  for (const lane of [built.countIn.backing1, built.countIn.backing2]) {
+  const builtCountInLanes = [built.countIn.backing1, built.countIn.backing2];
+  for (let laneIndex = 0; laneIndex < builtCountInLanes.length; laneIndex += 1) {
+    const lane = builtCountInLanes[laneIndex];
     if (!lane.enabled || !lane.fileId) {
       continue;
     }
@@ -4783,6 +5455,7 @@ async function playBuiltTrackLive(track, sessionId) {
     const laneMeta = await getAudioMetadata(laneFile);
     countInLaneRuntime.push({
       lane,
+      laneIndex,
       file: laneFile,
       durationSec: Math.max(0, Number(laneMeta.durationSec) || 0)
     });
@@ -4815,23 +5488,28 @@ async function playBuiltTrackLive(track, sessionId) {
           sessionId,
           label: `build count-in beat ${beat + 1}`,
           clock: contextClock
-        }
+        },
+        { outputNode: mixRack.clickGain }
       );
     }
   }
 
   for (const entry of countInLaneRuntime) {
     const delayMs = Math.max(0, (countInBackingStartAt - context.currentTime) * 1000);
+    const laneMix = entry.laneIndex === 1 ? "backing2" : "backing1";
     const timer = setTimeout(() => {
       if (cancelled) {
         return;
       }
       const url = URL.createObjectURL(entry.file);
       const audio = new Audio(url);
-      const source = context.createMediaElementSource(audio);
-      const panner = context.createStereoPanner();
-      panner.pan.value = built.splitOutput.enabled ? panValue(entry.lane.channel) : 0;
-      source.connect(panner).connect(context.destination);
+      connectMediaAudioToLane(
+        context,
+        audio,
+        built.splitOutput.enabled ? panValue(entry.lane.channel) : 0,
+        laneMix,
+        mixRack
+      );
       audio.play();
       activeAudios.push({ audio, url });
     }, delayMs);
@@ -4872,7 +5550,10 @@ async function playBuiltTrackLive(track, sessionId) {
             label: `section ${section.name} strong beat ${beat + 1}`,
             clock: contextClock
           },
-          { playbackRate: strongSpec.playbackRate }
+            {
+              playbackRate: strongSpec.playbackRate,
+              outputNode: mixRack.clickGain
+            }
         );
       } else {
         scheduleClickCueAt(
@@ -4885,13 +5566,15 @@ async function playBuiltTrackLive(track, sessionId) {
             sessionId,
             label: `section ${section.name} click beat ${beat + 1}`,
             clock: contextClock
-          }
+            },
+            { outputNode: mixRack.clickGain }
         );
       }
     }
 
     const sectionLanes = [section.backing1, section.backing2];
-    for (const lane of sectionLanes) {
+    for (let laneIndex = 0; laneIndex < sectionLanes.length; laneIndex += 1) {
+      const lane = sectionLanes[laneIndex];
       if (!lane.fileId) {
         continue;
       }
@@ -4907,10 +5590,13 @@ async function playBuiltTrackLive(track, sessionId) {
         }
         const url = URL.createObjectURL(laneFile);
         const audio = new Audio(url);
-        const source = context.createMediaElementSource(audio);
-        const panner = context.createStereoPanner();
-        panner.pan.value = built.splitOutput.enabled ? panValue(lane.channel) : 0;
-        source.connect(panner).connect(context.destination);
+        connectMediaAudioToLane(
+          context,
+          audio,
+          built.splitOutput.enabled ? panValue(lane.channel) : 0,
+          laneIndex === 1 ? "backing2" : "backing1",
+          mixRack
+        );
         audio.play();
         activeAudios.push({ audio, url });
       }, delayMs);
@@ -4922,8 +5608,11 @@ async function playBuiltTrackLive(track, sessionId) {
 
   const stop = () => {
     cancelled = true;
+    stopTimer?.clear();
+    stopTimer = null;
     timers.forEach((timerId) => clearTimeout(timerId));
     context.close();
+    mixRack.dispose();
     activeAudios.forEach(({ audio, url }) => {
       audio.pause();
       audio.currentTime = 0;
@@ -4932,13 +5621,44 @@ async function playBuiltTrackLive(track, sessionId) {
     dumpDiagnosticSummary(sessionId);
     resetPlaybackVisual();
     appState.playingHandle = null;
+    appState.playbackPaused = false;
     render();
   };
 
-  appState.playingHandle = { stop };
+  const pause = () => {
+    if (cancelled || appState.playbackPaused) {
+      return;
+    }
+    if (context.state === "running") {
+      context.suspend();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (!audio.paused) {
+        audio.pause();
+      }
+    });
+    stopTimer?.pause();
+  };
+
+  const resume = () => {
+    if (cancelled) {
+      return;
+    }
+    if (context.state === "suspended") {
+      context.resume();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (audio.paused && audio.currentTime > 0 && !audio.ended) {
+        audio.play().catch(() => {});
+      }
+    });
+    stopTimer?.resume();
+  };
+
+  appState.playingHandle = { stop, pause, resume };
   render();
 
-  setTimeout(() => {
+  stopTimer = createPausableTimeout(() => {
     if (cancelled) {
       return;
     }
@@ -4973,6 +5693,7 @@ async function playLoopTrackRendered(track, sessionId) {
   if (context.state === "suspended") {
     await context.resume();
   }
+  const mixRack = createMixRack(context);
 
   let source = null;
   let cancelled = false;
@@ -4994,16 +5715,46 @@ async function playLoopTrackRendered(track, sessionId) {
       audio.currentTime = 0;
       URL.revokeObjectURL(url);
     });
+    mixRack.dispose();
     if (context.state !== "closed") {
       context.close();
     }
     appState.playingHandle = null;
+    appState.playbackPaused = false;
     resetPlaybackVisual();
     dumpDiagnosticSummary(sessionId);
     render();
   };
 
-  appState.playingHandle = { stop };
+  const pause = () => {
+    if (cancelled || appState.playbackPaused) {
+      return;
+    }
+    if (context.state === "running") {
+      context.suspend();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (!audio.paused) {
+        audio.pause();
+      }
+    });
+  };
+
+  const resume = () => {
+    if (cancelled) {
+      return;
+    }
+    if (context.state === "suspended") {
+      context.resume();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (audio.paused && audio.currentTime > 0 && !audio.ended) {
+        audio.play().catch(() => {});
+      }
+    });
+  };
+
+  appState.playingHandle = { stop, pause, resume };
   render();
 
   try {
@@ -5030,7 +5781,9 @@ async function playLoopTrackRendered(track, sessionId) {
     const clickPan = panValue(loopConfig.mainClick.channel || "right");
 
     const countInBackingRuntime = [];
-    for (const lane of [loopConfig.countIn.backing1, loopConfig.countIn.backing2]) {
+    const loopCountInLanes = [loopConfig.countIn.backing1, loopConfig.countIn.backing2];
+    for (let laneIndex = 0; laneIndex < loopCountInLanes.length; laneIndex += 1) {
+      const lane = loopCountInLanes[laneIndex];
       if (!lane.enabled || !lane.fileId) {
         continue;
       }
@@ -5041,6 +5794,7 @@ async function playLoopTrackRendered(track, sessionId) {
       const laneMeta = await getAudioMetadata(laneFile);
       countInBackingRuntime.push({
         lane,
+        laneIndex,
         file: laneFile,
         durationSec: Math.max(0, Number(laneMeta.durationSec) || 0)
       });
@@ -5060,7 +5814,8 @@ async function playLoopTrackRendered(track, sessionId) {
             sessionId,
             label: `loop rendered count-in beat ${beat + 1}`,
             clock: contextClock
-          }
+          },
+          { outputNode: mixRack.clickGain }
         );
       }
     }
@@ -5074,10 +5829,13 @@ async function playLoopTrackRendered(track, sessionId) {
         }
         const url = URL.createObjectURL(laneEntry.file);
         const laneAudio = new Audio(url);
-        const sourceNode = context.createMediaElementSource(laneAudio);
-        const panner = context.createStereoPanner();
-        panner.pan.value = panValue(laneEntry.lane.channel || "both");
-        sourceNode.connect(panner).connect(context.destination);
+        connectMediaAudioToLane(
+          context,
+          laneAudio,
+          panValue(laneEntry.lane.channel || "both"),
+          laneEntry.laneIndex === 1 ? "backing2" : "backing1",
+          mixRack
+        );
         laneAudio.play();
         activeAudios.push({ audio: laneAudio, url });
       }, delayMs);
@@ -5097,7 +5855,7 @@ async function playLoopTrackRendered(track, sessionId) {
     source.loop = true;
     source.loopStart = 0;
     source.loopEnd = Math.max(0.05, Number(rendered.loopDurationSec) || loopBuffer.duration);
-    source.connect(context.destination);
+    source.connect(mixRack.backing1Gain);
     source.start(loopStartAt);
     return true;
   } catch {
@@ -5111,6 +5869,7 @@ async function playLoopTrackLive(track, sessionId) {
   if (context.state === "suspended") {
     await context.resume();
   }
+  const mixRack = createMixRack(context);
 
   const loopConfig = normalizeLoopTrack(track.loop || {});
   const bpm = Math.max(20, Number(loopConfig.bpm) || 120);
@@ -5143,7 +5902,9 @@ async function playLoopTrackLive(track, sessionId) {
     : null;
 
   const countInBackingRuntime = [];
-  for (const lane of [loopConfig.countIn.backing1, loopConfig.countIn.backing2]) {
+  const loopCountInLanes = [loopConfig.countIn.backing1, loopConfig.countIn.backing2];
+  for (let laneIndex = 0; laneIndex < loopCountInLanes.length; laneIndex += 1) {
+    const lane = loopCountInLanes[laneIndex];
     if (!lane.enabled || !lane.fileId) {
       continue;
     }
@@ -5154,6 +5915,7 @@ async function playLoopTrackLive(track, sessionId) {
     const laneMeta = await getAudioMetadata(laneFile);
     countInBackingRuntime.push({
       lane,
+      laneIndex,
       file: laneFile,
       durationSec: Math.max(0, Number(laneMeta.durationSec) || 0)
     });
@@ -5183,7 +5945,8 @@ async function playLoopTrackLive(track, sessionId) {
           sessionId,
           label: `loop count-in beat ${beat + 1}`,
           clock: contextClock
-        }
+        },
+        { outputNode: mixRack.clickGain }
       );
     }
   }
@@ -5197,10 +5960,13 @@ async function playLoopTrackLive(track, sessionId) {
       }
       const url = URL.createObjectURL(laneEntry.file);
       const laneAudio = new Audio(url);
-      const source = context.createMediaElementSource(laneAudio);
-      const panner = context.createStereoPanner();
-      panner.pan.value = panValue(laneEntry.lane.channel || "both");
-      source.connect(panner).connect(context.destination);
+      connectMediaAudioToLane(
+        context,
+        laneAudio,
+        panValue(laneEntry.lane.channel || "both"),
+        laneEntry.laneIndex === 1 ? "backing2" : "backing1",
+        mixRack
+      );
       laneAudio.play();
       activeAudios.push({ audio: laneAudio, url });
     }, delayMs);
@@ -5226,7 +5992,10 @@ async function playLoopTrackLive(track, sessionId) {
             label: "loop strong beat",
             clock: contextClock
           },
-          { playbackRate: strongSpec.playbackRate }
+          {
+            playbackRate: strongSpec.playbackRate,
+            outputNode: mixRack.clickGain
+          }
         );
       } else {
         scheduleClickCueAt(
@@ -5239,7 +6008,8 @@ async function playLoopTrackLive(track, sessionId) {
             sessionId,
             label: "loop click beat",
             clock: contextClock
-          }
+          },
+          { outputNode: mixRack.clickGain }
         );
       }
 
@@ -5259,16 +6029,46 @@ async function playLoopTrackLive(track, sessionId) {
       audio.currentTime = 0;
       URL.revokeObjectURL(url);
     });
+    mixRack.dispose();
     if (context.state !== "closed") {
       context.close();
     }
     appState.playingHandle = null;
+    appState.playbackPaused = false;
     resetPlaybackVisual();
     dumpDiagnosticSummary(sessionId);
     render();
   };
 
-  appState.playingHandle = { stop };
+  const pause = () => {
+    if (cancelled || appState.playbackPaused) {
+      return;
+    }
+    if (context.state === "running") {
+      context.suspend();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (!audio.paused) {
+        audio.pause();
+      }
+    });
+  };
+
+  const resume = () => {
+    if (cancelled) {
+      return;
+    }
+    if (context.state === "suspended") {
+      context.resume();
+    }
+    activeAudios.forEach(({ audio }) => {
+      if (audio.paused && audio.currentTime > 0 && !audio.ended) {
+        audio.play().catch(() => {});
+      }
+    });
+  };
+
+  appState.playingHandle = { stop, pause, resume };
   render();
 }
 
@@ -5276,7 +6076,9 @@ function stopPlayback() {
   if (appState.playingHandle) {
     appState.playingHandle.stop();
     appState.playingHandle = null;
+    appState.playbackPaused = false;
   }
+  appState.playbackPaused = false;
   resetPlaybackVisual();
   render();
 }
@@ -6399,6 +7201,8 @@ async function decodeFileToAudioBuffer(context, file) {
 
 function scheduleClickCueAt(context, customBuffer, sample, pan, when, diagnostics = null, options = {}) {
   const playbackRate = Math.max(0.2, Number(options.playbackRate) || 1);
+  const outputNode = options.outputNode || context.destination;
+  const gainMultiplier = Math.max(0, Number(options.gainMultiplier) || 1);
   const expectedStartWallMs = diagnostics?.clock ? expectedWallTimeMs(diagnostics.clock, when) : null;
 
   if (customBuffer) {
@@ -6410,8 +7214,8 @@ function scheduleClickCueAt(context, customBuffer, sample, pan, when, diagnostic
     source.buffer = customBuffer;
     source.playbackRate.setValueAtTime(playbackRate, when);
     panner.pan.value = pan;
-    gain.gain.setValueAtTime(1, when);
-    source.connect(gain).connect(panner).connect(context.destination);
+    gain.gain.setValueAtTime(gainMultiplier, when);
+    source.connect(gain).connect(panner).connect(outputNode);
     source.onended = () => {
       if (!diagnostics || !diagnostics.clock) {
         return;
@@ -6433,11 +7237,13 @@ function scheduleClickCueAt(context, customBuffer, sample, pan, when, diagnostic
     return;
   }
 
-  playClick(context, sample || "beep", pan, when, diagnostics, options);
+  playClick(context, sample || "beep", pan, when, diagnostics, { ...options, outputNode, gainMultiplier });
 }
 
 function playClick(context, sample, pan, when = context.currentTime, diagnostics = null, options = {}) {
   const playbackRate = Math.max(0.2, Number(options.playbackRate) || 1);
+  const outputNode = options.outputNode || context.destination;
+  const gainMultiplier = Math.max(0, Number(options.gainMultiplier) || 1);
   const builtInBuffer = options.builtInBufferMap?.get(sample) || null;
   if (builtInBuffer) {
     const source = context.createBufferSource();
@@ -6448,8 +7254,8 @@ function playClick(context, sample, pan, when = context.currentTime, diagnostics
     source.buffer = builtInBuffer;
     source.playbackRate.setValueAtTime(playbackRate, when);
     panner.pan.value = pan;
-    gain.gain.setValueAtTime(1, when);
-    source.connect(gain).connect(panner).connect(context.destination);
+    gain.gain.setValueAtTime(gainMultiplier, when);
+    source.connect(gain).connect(panner).connect(outputNode);
     source.onended = () => {
       if (!diagnostics || !diagnostics.clock) {
         return;
@@ -6491,11 +7297,13 @@ function playClick(context, sample, pan, when = context.currentTime, diagnostics
   osc.frequency.value = toneFrequency * playbackRate;
 
   panner.pan.value = pan;
-  gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(0.45, when + 0.003);
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.08);
+  const peakGain = Math.max(0.0001, 0.45 * gainMultiplier);
+  const floorGain = Math.max(0.0001, 0.0001 * Math.max(1, gainMultiplier));
+  gain.gain.setValueAtTime(floorGain, when);
+  gain.gain.exponentialRampToValueAtTime(peakGain, when + 0.003);
+  gain.gain.exponentialRampToValueAtTime(floorGain, when + 0.08);
 
-  osc.connect(gain).connect(panner).connect(context.destination);
+  osc.connect(gain).connect(panner).connect(outputNode);
   osc.onended = () => {
     if (!diagnostics || !diagnostics.clock) {
       return;

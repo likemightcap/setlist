@@ -18,7 +18,6 @@
         <h1 id="setNameLabel">UNTITLED SET</h1>
       </div>
       <div class="set-header-actions">
-        <button id="installAppBtn" class="install-app-btn" hidden>Download App</button>
         <button id="newSetBtn" class="icon-btn top-action-btn" aria-label="New set">
           <img src="assets/add-icon.png" alt="New set">
         </button>
@@ -36,11 +35,15 @@
 
       <button id="addTrackBtn" class="add-track-card" aria-label="Add new track">
         <span class="plus" aria-hidden="true">+</span>
-        <span>ADD NEW TRACK</span>
+        <span class="add-track-label">NEW TRACK</span>
       </button>
     </main>
 
     <div class="transport-bar" aria-label="Playback controls">
+      <button id="installAppBtn" class="install-app-btn" hidden>Download App</button>
+      <button id="mixBtn" class="transport-btn icon-only compact-transport-btn" aria-label="Open mix controls">
+        <img src="assets/mix-icon.png" alt="Mix">
+      </button>
       <button id="transportContinuousBtn" class="transport-btn icon-only compact-transport-btn" aria-label="Toggle continuous play" aria-pressed="false">
         <img src="assets/cont-play.png" alt="Continuous play">
       </button>
@@ -53,6 +56,9 @@
 
     <footer class="bottom-actions">
       <button id="transportPlayBtn" class="transport-btn bottom-transport-btn">PLAY</button>
+      <button id="transportPauseBtn" class="transport-btn pause-transport-btn" aria-label="Pause track">
+        <span class="pause-glyph" aria-hidden="true"></span>
+      </button>
       <button id="transportStopBtn" class="transport-btn bottom-transport-btn">STOP</button>
     </footer>
   </div>
@@ -94,7 +100,7 @@
           <div class="modal-section-block">
             <h3>Count-In</h3>
             <div class="count-in-layout">
-              <div class="count-in-click-panel mini-panel">
+              <div class="count-in-click-panel mini-panel mini-panel-click">
                 <label class="switch-field" for="masterCountInInput">
                   <span>Click</span>
                   <span class="switch-wrap">
@@ -126,7 +132,7 @@
                 </div>
               </div>
 
-              <div class="mini-panel backing-lane-panel">
+              <div class="mini-panel backing-lane-panel mini-panel-backing1">
                 <label class="switch-field" for="masterCountInBacking1EnabledInput">
                   <span>Backing 1</span>
                   <span class="switch-wrap">
@@ -142,7 +148,7 @@
                 </div>
               </div>
 
-              <div class="mini-panel backing-lane-panel">
+              <div class="mini-panel backing-lane-panel mini-panel-backing2">
                 <label class="switch-field" for="masterCountInBacking2EnabledInput">
                   <span>Backing 2</span>
                   <span class="switch-wrap">
@@ -224,7 +230,7 @@
             </div>
           </div>
 
-          <div class="modal-section-block">
+          <div class="modal-section-block master-audio-block">
             <h3>Master Audio</h3>
             <div class="backing-recorder-controls">
               <button id="masterRecordBtn" class="record-btn" type="button" aria-label="Start recording"></button>
@@ -258,7 +264,7 @@
           <div class="modal-section-block">
             <h3>Count-In</h3>
             <div class="count-in-layout">
-              <div class="count-in-click-panel mini-panel">
+              <div class="count-in-click-panel mini-panel mini-panel-click">
                 <label class="switch-field" for="countInInput">
                   <span>Click</span>
                   <span class="switch-wrap">
@@ -290,7 +296,7 @@
                 </div>
               </div>
 
-              <div class="mini-panel backing-lane-panel">
+              <div class="mini-panel backing-lane-panel mini-panel-backing1">
                 <label class="switch-field" for="countInBacking1EnabledInput">
                   <span>Backing 1</span>
                   <span class="switch-wrap">
@@ -306,7 +312,7 @@
                 </div>
               </div>
 
-              <div class="mini-panel backing-lane-panel">
+              <div class="mini-panel backing-lane-panel mini-panel-backing2">
                 <label class="switch-field" for="countInBacking2EnabledInput">
                   <span>Backing 2</span>
                   <span class="switch-wrap">
@@ -367,7 +373,6 @@
           <div class="sections-panel modal-section-block">
             <div class="sections-head">
               <h3>Sections</h3>
-              <button type="button" id="addSectionBtn" class="mini-btn">+ Add Section</button>
             </div>
             <div class="section-grid-head" aria-hidden="true">
               <span>Section Name</span>
@@ -378,6 +383,7 @@
               <span>Backing 2</span>
             </div>
             <div id="sectionList"></div>
+            <button type="button" id="addSectionBtn" class="mini-btn add-section-btn">+ADD SECTION</button>
           </div>
 
           <input id="customCountInFileInput" type="file" accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/*" hidden>
@@ -403,7 +409,7 @@
           <div class="modal-section-block">
             <h3>Count-In</h3>
             <div class="count-in-layout">
-              <div class="count-in-click-panel mini-panel">
+              <div class="count-in-click-panel mini-panel mini-panel-click">
                 <label class="switch-field" for="loopCountInInput">
                   <span>Click</span>
                   <span class="switch-wrap">
@@ -435,7 +441,7 @@
                 </div>
               </div>
 
-              <div class="mini-panel backing-lane-panel">
+              <div class="mini-panel backing-lane-panel mini-panel-backing1">
                 <label class="switch-field" for="loopCountInBacking1EnabledInput">
                   <span>Backing 1</span>
                   <span class="switch-wrap">
@@ -451,7 +457,7 @@
                 </div>
               </div>
 
-              <div class="mini-panel backing-lane-panel">
+              <div class="mini-panel backing-lane-panel mini-panel-backing2">
                 <label class="switch-field" for="loopCountInBacking2EnabledInput">
                   <span>Backing 2</span>
                   <span class="switch-wrap">
@@ -635,6 +641,56 @@
     </div>
   </div>
 
+  <div id="mixModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="mixTitle">
+    <div class="modal-card mix-modal-card">
+      <div class="modal-head">
+        <h2 id="mixTitle">Mix</h2>
+        <button class="icon-btn close-modal" data-close="mixModal" aria-label="Close">X</button>
+      </div>
+
+      <div class="mix-matrix" aria-label="Mix controls">
+        <div class="mix-lane-header">CLICK</div>
+        <div class="mix-lane-header mix-lane-header-stack">
+          <span class="mix-lane-subtitle">(Master Audio)</span>
+          <span>BACKING 1</span>
+        </div>
+        <div class="mix-lane-header">BACKING 2</div>
+
+        <div class="mix-grid-lines" aria-hidden="true"></div>
+
+        <div class="mix-lane mix-lane-click">
+          <button id="mixClickFader" class="mix-fader" type="button" data-lane="click" aria-label="Click dB fader">
+            <span class="mix-fader-thumb mix-fader-thumb-click">
+              <span id="mixClickDbValue" class="mix-fader-value">+0</span>
+            </span>
+          </button>
+          <button id="mixClickMuteBtn" class="mix-mute-btn" type="button" data-lane="click" aria-pressed="false" aria-label="Mute click"></button>
+          <span class="mix-mute-label">MUTE</span>
+        </div>
+
+        <div class="mix-lane mix-lane-backing1">
+          <button id="mixBacking1Fader" class="mix-fader" type="button" data-lane="backing1" aria-label="Backing 1 dB fader">
+            <span class="mix-fader-thumb mix-fader-thumb-backing1">
+              <span id="mixBacking1DbValue" class="mix-fader-value">+0</span>
+            </span>
+          </button>
+          <button id="mixBacking1MuteBtn" class="mix-mute-btn" type="button" data-lane="backing1" aria-pressed="false" aria-label="Mute backing 1"></button>
+          <span class="mix-mute-label">MUTE</span>
+        </div>
+
+        <div class="mix-lane mix-lane-backing2">
+          <button id="mixBacking2Fader" class="mix-fader" type="button" data-lane="backing2" aria-label="Backing 2 dB fader">
+            <span class="mix-fader-thumb mix-fader-thumb-backing2">
+              <span id="mixBacking2DbValue" class="mix-fader-value">+0</span>
+            </span>
+          </button>
+          <button id="mixBacking2MuteBtn" class="mix-mute-btn" type="button" data-lane="backing2" aria-pressed="false" aria-label="Mute backing 2"></button>
+          <span class="mix-mute-label">MUTE</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="confirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
     <div class="modal-card small">
       <h2 id="confirmTitle">Confirm Delete</h2>
@@ -685,6 +741,7 @@
   <div id="contextMenu" class="context-menu hidden"></div>
 
   <div id="quickPickerOverlay" class="quick-picker-overlay hidden" aria-hidden="true">
+    <button id="quickPickerTapTempoBtn" class="quick-picker-tap-tempo-btn" type="button" hidden>TAP TEMPO</button>
     <div id="quickPickerCard" class="quick-picker-card" role="dialog" aria-modal="true" aria-label="Value picker">
       <div id="quickPickerRows" class="quick-picker-rows"></div>
       <div class="quick-picker-highlight" aria-hidden="true"></div>
