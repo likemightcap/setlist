@@ -3,6 +3,9 @@ const AUDIO_DB_NAME = "setlist-builder-audio";
 const AUDIO_DB_VERSION = 1;
 const AUDIO_STORE = "files";
 const COUNT_IN_PREROLL_MS = 180;
+const COUNT_IN_SYNC_PREP_MS = 140;
+const COUNT_IN_SYNC_MIN_HEADROOM_MS = 120;
+const COUNT_IN_SYNC_INTERVAL_TOLERANCE_MS = 8;
 const PLAY_SYNC_PREP_MS = 170;
 const CLICK_ONSET_THRESHOLD = 0.02;
 const BUFFER_ONSET_CACHE = new WeakMap();
@@ -117,6 +120,7 @@ const appState = {
     paused: false,
     pausedAtMs: 0,
     countInBeats: 0,
+    countInBeatWallMs: [],
     beatDurationMs: 0,
     countInStartMs: 0,
     countInEndMs: 0,
@@ -198,6 +202,9 @@ const appState = {
     movedBeforeHold: false,
     tapTempoTimes: [],
     suppressClickUntil: 0
+  },
+  sectionDisplay: {
+    previousTrackId: ""
   }
 };
 
@@ -206,6 +213,7 @@ const els = {
   installAppBtn: document.getElementById("installAppBtn"),
   renameSetBtn: document.getElementById("renameSetBtn"),
   trackList: document.getElementById("trackList"),
+  selectedTrackSections: document.getElementById("selectedTrackSections"),
   renderQueueBanner: document.getElementById("renderQueueBanner"),
   playbackCueOverlay: document.getElementById("playbackCueOverlay"),
   playbackCueNumber: document.getElementById("playbackCueNumber"),
@@ -1014,6 +1022,7 @@ function renderTrackRows() {
   const rows = appState.currentSet.tracks.map((track, index) => {
     const row = document.createElement("article");
     row.className = "track-row";
+    row.classList.add(`track-type-${track.type}`);
     if (index === appState.selectedTrackIndex) {
       row.classList.add("selected");
     }
@@ -1025,6 +1034,7 @@ function renderTrackRows() {
     const trackDuration = track.type === "loop"
       ? "LOOP"
       : formatDuration(playbackState.remainingSec);
+    const subtitle = trackSubtitleForCard(track, playbackState);
     const bpmValue = displayBpmForTrackCard(track);
     const status = getTrackRenderStatus(track);
 
@@ -1040,13 +1050,17 @@ function renderTrackRows() {
         <span></span>
       </div>
       <div class="track-main">
-        <div class="track-title-row">
-          <h2>${index + 1}. ${escapeHtml(track.displayName)}</h2>
-          <span class="render-chip ${escapeAttr(status.className)}">${escapeHtml(status.label)}</span>
+        <div class="track-meta-row">
+          <span class="track-index-pill">${index + 1}</span>
+          <span class="track-subtitle">${escapeHtml(subtitle)}</span>
         </div>
-        <div class="track-time">${trackDuration}</div>
+        <h2>${escapeHtml(track.displayName)}</h2>
+        <div class="track-time-wrap">
+          <span class="track-time track-time-pill">${trackDuration}</span>
+        </div>
       </div>
       <div class="track-bpm">
+        <span class="render-chip ${escapeAttr(status.className)}" aria-label="${escapeAttr(status.label)}" title="${escapeAttr(status.label)}"></span>
         <span class="track-bpm-label">BPM</span>
         <span class="track-bpm-value">${escapeHtml(String(bpmValue))}</span>
       </div>
@@ -1088,10 +1102,23 @@ function renderTrackRows() {
     return row;
   });
 
+  const selectedTrack = appState.currentSet.tracks[appState.selectedTrackIndex] || null;
+  const inlineSections = buildSelectedTrackSectionsInline(selectedTrack);
+  if (!inlineSections) {
+    appState.sectionDisplay.previousTrackId = "";
+  }
+  const trackChildren = [];
+  rows.forEach((row, index) => {
+    trackChildren.push(row);
+    if (inlineSections && index === appState.selectedTrackIndex) {
+      trackChildren.push(inlineSections);
+    }
+  });
+
   if (els.addTrackBtn) {
-    els.trackList.replaceChildren(...rows, els.addTrackBtn);
+    els.trackList.replaceChildren(...trackChildren, els.addTrackBtn);
   } else {
-    els.trackList.replaceChildren(...rows);
+    els.trackList.replaceChildren(...trackChildren);
   }
 }
 
@@ -1177,6 +1204,14 @@ function applyPlaybackVisualToTrackRows() {
       if (bpmEl && liveBpmValue !== null && liveBpmValue !== undefined) {
         bpmEl.textContent = String(liveBpmValue);
       }
+      const subtitleEl = row.querySelector(".track-subtitle");
+      if (subtitleEl && playingTrack) {
+        subtitleEl.textContent = trackSubtitleForCard(playingTrack, {
+          playing: true,
+          remainingSec: visual.remainingSec,
+          progressRatio: visual.progressRatio
+        });
+      }
       return;
     }
 
@@ -1186,6 +1221,10 @@ function applyPlaybackVisualToTrackRows() {
       const timeEl = row.querySelector(".track-time");
       if (timeEl) {
         timeEl.textContent = "LOOP";
+      }
+      const subtitleEl = row.querySelector(".track-subtitle");
+      if (subtitleEl) {
+        subtitleEl.textContent = "LOOP";
       }
       return;
     }
@@ -1208,6 +1247,36 @@ function playbackBpmForTrack(track, visual) {
   const remainingSec = Math.max(0, Number(visual.remainingSec) || 0);
   const elapsedSec = Math.max(0, durationSec - remainingSec);
   return builtTrackBpmAtElapsedSec(track, elapsedSec);
+}
+
+function trackSubtitleForCard(track, playbackState = null) {
+  if (!track) {
+    return "";
+  }
+
+  if (track.type === "master") {
+    return "MASTER SLATE";
+  }
+
+  if (track.type === "loop") {
+    return "LOOP";
+  }
+
+  const sections = track.built?.sections || [];
+  if (!sections.length) {
+    return "BUILD TRACK";
+  }
+
+  let activeSection = sections[0];
+  if (playbackState?.playing) {
+    const totalSec = Math.max(0, totalTrackSeconds(track));
+    const remainingSec = Math.max(0, Number(playbackState.remainingSec) || 0);
+    const elapsedSec = Math.max(0, totalSec - remainingSec);
+    activeSection = builtTrackSectionAtElapsedSec(track, elapsedSec) || activeSection;
+  }
+
+  const label = String(activeSection?.name || "Section").trim();
+  return (label || "Section").toUpperCase();
 }
 
 function displayBpmForTrackCard(track) {
@@ -1233,9 +1302,23 @@ function displayBpmForTrackCard(track) {
 }
 
 function builtTrackBpmAtElapsedSec(track, elapsedSec) {
+  const activeSection = builtTrackSectionAtElapsedSec(track, elapsedSec);
+  if (activeSection) {
+    return Math.round(Number(activeSection.bpm) || 120);
+  }
+
   const sections = track.built?.sections || [];
   if (!sections.length) {
     return "-";
+  }
+  const lastBpm = Number(sections[sections.length - 1]?.bpm) || 120;
+  return Math.round(lastBpm);
+}
+
+function builtTrackSectionAtElapsedSec(track, elapsedSec) {
+  const sections = track.built?.sections || [];
+  if (!sections.length) {
+    return null;
   }
 
   let cursorSec = 0;
@@ -1245,18 +1328,277 @@ function builtTrackBpmAtElapsedSec(track, elapsedSec) {
     const sectionBeats = (Number(section.bars) || 1) * beatsPerBar;
     const sectionDurationSec = sectionBeats * (60 / bpm);
     if (elapsedSec < cursorSec + sectionDurationSec) {
-      return Math.round(bpm);
+      return section;
     }
     cursorSec += sectionDurationSec;
   }
 
-  const lastBpm = Number(sections[sections.length - 1]?.bpm) || 120;
-  return Math.round(lastBpm);
+  return sections[sections.length - 1] || null;
 }
 
 function updatePlaybackVisualUI() {
   renderPlaybackCueOverlay();
   applyPlaybackVisualToTrackRows();
+  applySelectedTrackSectionsPlaybackVisual();
+}
+
+function buildSelectedTrackSectionsInline(track) {
+  if (!track || track.type !== "built") {
+    return null;
+  }
+
+  const sections = track.built?.sections || [];
+  if (!sections.length) {
+    return null;
+  }
+
+  const playbackState = getBuiltSectionPlaybackState(track);
+  const anchorSectionIndex = playbackState.active ? playbackState.sectionIndex : 0;
+  const visibleSectionSlots = sectionDisplayWindowSlots(sections.length, anchorSectionIndex);
+  const shouldAnimateOpen = appState.sectionDisplay.previousTrackId !== track.id;
+
+  const panel = document.createElement("section");
+  panel.className = "selected-track-sections-inline";
+  if (shouldAnimateOpen) {
+    panel.classList.add("is-entering");
+  }
+  panel.dataset.trackId = track.id;
+  panel.dataset.anchorSectionIndex = String(anchorSectionIndex);
+  panel.dataset.visibleSlots = visibleSectionSlots.map((value) => (value === null ? "x" : String(value))).join(",");
+  panel.setAttribute("aria-label", "Selected track sections");
+  populateSelectedTrackSectionsInline(panel, track, anchorSectionIndex);
+  appState.sectionDisplay.previousTrackId = track.id;
+  return panel;
+}
+
+function populateSelectedTrackSectionsInline(panel, track, anchorSectionIndex) {
+  const sections = track?.built?.sections || [];
+  const visibleSectionSlots = sectionDisplayWindowSlots(sections.length, anchorSectionIndex);
+  panel.dataset.anchorSectionIndex = String(anchorSectionIndex);
+  panel.dataset.visibleSlots = visibleSectionSlots.map((value) => (value === null ? "x" : String(value))).join(",");
+
+  const cards = visibleSectionSlots.map((sectionIndex) => {
+    if (sectionIndex === null) {
+      const emptySlot = document.createElement("div");
+      emptySlot.className = "selected-section-slot selected-section-slot-empty";
+      emptySlot.setAttribute("aria-hidden", "true");
+      return emptySlot;
+    }
+
+    const section = sections[sectionIndex] || {};
+    const card = document.createElement("article");
+    card.className = "selected-section-card selected-section-slot";
+    card.dataset.sectionIndex = String(sectionIndex);
+    if (sectionIndex === anchorSectionIndex) {
+      card.classList.add("is-current");
+    }
+
+    const sectionName = String(section?.name || `Section ${sectionIndex + 1}`).trim() || `Section ${sectionIndex + 1}`;
+    const bpm = Math.round(Number(section?.bpm) || 120);
+    const bars = Math.max(1, Number(section?.bars) || 1);
+    const meterDotCount = Math.max(1, beatsPerBarFromSignature(section?.timeSignature || "4/4"));
+
+    const meterDots = Array.from({ length: meterDotCount }, (_, dotIndex) => (
+      `<span class="selected-section-dot" data-dot-index="${dotIndex}" aria-hidden="true"></span>`
+    )).join("");
+
+    card.innerHTML = `
+      <div class="selected-section-head">
+        <span class="selected-section-index-pill">${sectionIndex + 1}</span>
+        <h3 class="selected-section-name">${escapeHtml(sectionName.toUpperCase())}</h3>
+      </div>
+      <div class="selected-section-meter" aria-hidden="true">${meterDots}</div>
+      <div class="selected-section-meta">
+        <div class="selected-section-bpm">
+          <span class="selected-section-meta-label">BPM:</span>
+          <span class="selected-section-bpm-value">${escapeHtml(String(bpm))}</span>
+        </div>
+        <div class="selected-section-bar">
+          <span class="selected-section-meta-label">BAR:</span>
+          <span class="selected-section-bar-value">1/${bars}</span>
+        </div>
+      </div>
+    `;
+
+    return card;
+  });
+
+  panel.replaceChildren(...cards);
+}
+
+function sectionDisplayWindowSlots(totalSections, anchorIndex) {
+  const total = Math.max(0, Number(totalSections) || 0);
+  if (!total) {
+    return [];
+  }
+
+  const clampedAnchor = Math.max(0, Math.min(total - 1, Number(anchorIndex) || 0));
+  const showTwoSlots = typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches;
+
+  if (showTwoSlots) {
+    return [
+      clampedAnchor,
+      clampedAnchor < (total - 1) ? clampedAnchor + 1 : null
+    ];
+  }
+
+  return [
+    clampedAnchor > 0 ? clampedAnchor - 1 : null,
+    clampedAnchor,
+    clampedAnchor < (total - 1) ? clampedAnchor + 1 : null
+  ];
+}
+
+function getBuiltSectionPlaybackState(track) {
+  const sections = track?.built?.sections || [];
+  if (!sections.length) {
+    return {
+      active: false,
+      sectionIndex: 0,
+      beatInBarIndex: 0,
+      currentBar: 1,
+      barsInSection: 1,
+      isLastBar: false,
+      beatPhase: 0
+    };
+  }
+
+  const visual = appState.playbackVisual;
+  const isPlayingThisTrack = !!appState.playingHandle
+    && appState.playingTrackIndex === appState.selectedTrackIndex
+    && !!visual.active
+    && visual.trackId === track.id
+    && visual.phase === "track";
+
+  if (!isPlayingThisTrack) {
+    const firstSection = sections[0] || {};
+    return {
+      active: false,
+      sectionIndex: 0,
+      beatInBarIndex: 0,
+      currentBar: 1,
+      barsInSection: Math.max(1, Number(firstSection?.bars) || 1),
+      isLastBar: false,
+      beatPhase: 0
+    };
+  }
+
+  const elapsedSec = Math.max(0, (performance.now() - visual.trackStartMs) / 1000);
+  let cursorSec = 0;
+
+  for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex += 1) {
+    const section = sections[sectionIndex] || {};
+    const bpm = Math.max(20, Number(section?.bpm) || 120);
+    const bars = Math.max(1, Number(section?.bars) || 1);
+    const beatsPerBar = Math.max(1, beatsPerBarFromSignature(section?.timeSignature || "4/4"));
+    const beatDurationSec = 60 / bpm;
+    const sectionBeats = bars * beatsPerBar;
+    const sectionDurationSec = sectionBeats * beatDurationSec;
+    const sectionStartSec = cursorSec;
+    const sectionEndSec = sectionStartSec + sectionDurationSec;
+
+    if (elapsedSec < sectionEndSec || sectionIndex === sections.length - 1) {
+      const elapsedInSectionSec = Math.max(0, Math.min(sectionDurationSec - 0.0001, elapsedSec - sectionStartSec));
+      const beatFloat = elapsedInSectionSec / beatDurationSec;
+      const beatIndex = Math.max(0, Math.floor(beatFloat));
+      const beatInBarIndex = beatIndex % beatsPerBar;
+      const barIndex = Math.floor(beatIndex / beatsPerBar);
+      const currentBar = Math.min(bars, barIndex + 1);
+
+      return {
+        active: true,
+        sectionIndex,
+        beatInBarIndex,
+        currentBar,
+        barsInSection: bars,
+        isLastBar: currentBar >= bars,
+        beatPhase: beatFloat - Math.floor(beatFloat)
+      };
+    }
+
+    cursorSec = sectionEndSec;
+  }
+
+  return {
+    active: false,
+    sectionIndex: 0,
+    beatInBarIndex: 0,
+    currentBar: 1,
+    barsInSection: 1,
+    isLastBar: false,
+    beatPhase: 0
+  };
+}
+
+function applySelectedTrackSectionsPlaybackVisual() {
+  const panel = els.trackList?.querySelector(".selected-track-sections-inline");
+  if (!panel) {
+    return;
+  }
+
+  const selectedTrack = appState.currentSet.tracks[appState.selectedTrackIndex] || null;
+  if (!selectedTrack || selectedTrack.type !== "built" || panel.dataset.trackId !== selectedTrack.id) {
+    return;
+  }
+
+  let cards = [...panel.querySelectorAll(".selected-section-card")];
+  const sections = selectedTrack.built?.sections || [];
+  if (!cards.length || !sections.length) {
+    return;
+  }
+
+  const playbackState = getBuiltSectionPlaybackState(selectedTrack);
+  const anchorSectionIndex = Number(panel.dataset.anchorSectionIndex);
+  if (playbackState.active && Number.isFinite(anchorSectionIndex) && playbackState.sectionIndex !== anchorSectionIndex) {
+    panel.classList.remove("is-entering");
+    populateSelectedTrackSectionsInline(panel, selectedTrack, playbackState.sectionIndex);
+    cards = [...panel.querySelectorAll(".selected-section-card")];
+  }
+
+  cards.forEach((card) => {
+    const sectionIndex = Number(card.dataset.sectionIndex);
+    const section = sections[sectionIndex] || {};
+    const bars = Math.max(1, Number(section?.bars) || 1);
+    card.classList.remove("is-current", "is-warning-pulse", "is-complete");
+    card.querySelectorAll(".selected-section-dot").forEach((dot) => {
+      dot.classList.remove("is-active");
+    });
+    const barValueEl = card.querySelector(".selected-section-bar-value");
+    if (barValueEl) {
+      barValueEl.textContent = `1/${bars}`;
+    }
+  });
+
+  const activeCard = cards.find((card) => Number(card.dataset.sectionIndex) === playbackState.sectionIndex);
+  if (!activeCard) {
+    return;
+  }
+
+  activeCard.classList.add("is-current");
+  activeCard.querySelectorAll(".selected-section-dot").forEach((dot, dotIndex) => {
+    dot.classList.toggle("is-active", dotIndex === playbackState.beatInBarIndex);
+  });
+
+  const activeBarValue = activeCard.querySelector(".selected-section-bar-value");
+  if (activeBarValue) {
+    activeBarValue.textContent = `${playbackState.currentBar}/${playbackState.barsInSection}`;
+  }
+
+  if (playbackState.active && playbackState.isLastBar && playbackState.beatPhase < 0.18) {
+    activeCard.classList.add("is-warning-pulse");
+  }
+}
+
+function queuePlaybackVisualTick() {
+  const visual = appState.playbackVisual;
+  if (!visual.active || visual.paused) {
+    return;
+  }
+  visual.timerId = window.requestAnimationFrame(() => {
+    visual.timerId = null;
+    tickPlaybackVisual();
+    queuePlaybackVisualTick();
+  });
 }
 
 function startPlaybackVisual(track, sessionId, options = {}) {
@@ -1268,6 +1610,12 @@ function startPlaybackVisual(track, sessionId, options = {}) {
   const trackDurationSec = Math.max(0, Number(options.trackDurationSec) || 0);
   const explicitCountInStartMs = Number(options.countInStartWallMs);
   const explicitTrackStartMs = Number(options.trackStartWallMs);
+  const explicitBeatTimes = Array.isArray(options.countInBeatWallMs)
+    ? options.countInBeatWallMs
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .sort((a, b) => a - b)
+    : [];
 
   const nowMs = performance.now();
   const beatDurationMs = 60000 / countInBpm;
@@ -1288,6 +1636,7 @@ function startPlaybackVisual(track, sessionId, options = {}) {
   appState.playbackVisual.paused = false;
   appState.playbackVisual.pausedAtMs = 0;
   appState.playbackVisual.countInBeats = countInBeats;
+  appState.playbackVisual.countInBeatWallMs = explicitBeatTimes;
   appState.playbackVisual.beatDurationMs = beatDurationMs;
   appState.playbackVisual.countInStartMs = countInStartMs;
   appState.playbackVisual.countInEndMs = countInEndMs;
@@ -1300,12 +1649,13 @@ function startPlaybackVisual(track, sessionId, options = {}) {
   appState.playbackVisual.remainingSec = trackDurationSec;
 
   tickPlaybackVisual();
-  appState.playbackVisual.timerId = window.setInterval(tickPlaybackVisual, 50);
+  queuePlaybackVisualTick();
 }
 
 function stopPlaybackVisualTimer() {
   const timerId = appState.playbackVisual.timerId;
   if (timerId) {
+    cancelAnimationFrame(timerId);
     clearInterval(timerId);
     appState.playbackVisual.timerId = null;
   }
@@ -1319,6 +1669,7 @@ function resetPlaybackVisual() {
   appState.playbackVisual.paused = false;
   appState.playbackVisual.pausedAtMs = 0;
   appState.playbackVisual.countInBeats = 0;
+  appState.playbackVisual.countInBeatWallMs = [];
   appState.playbackVisual.beatDurationMs = 0;
   appState.playbackVisual.countInStartMs = 0;
   appState.playbackVisual.countInEndMs = 0;
@@ -1357,12 +1708,22 @@ function tickPlaybackVisual() {
       return;
     }
 
-    const elapsedInCountInMs = nowMs - visual.countInStartMs;
-    const beatIndex = Math.floor(elapsedInCountInMs / visual.beatDurationMs);
-    if (beatIndex >= 0 && beatIndex < visual.countInBeats) {
-      visual.countDisplay = visual.countInBeats - beatIndex;
+    const beatWallTimes = visual.countInBeatWallMs || [];
+    if (beatWallTimes.length) {
+      let beatIndex = 0;
+      while (beatIndex + 1 < beatWallTimes.length && nowMs >= beatWallTimes[beatIndex + 1]) {
+        beatIndex += 1;
+      }
+      const displayFromBeatMap = visual.countInBeats - beatIndex;
+      visual.countDisplay = Math.max(0, Math.min(visual.countInBeats, displayFromBeatMap));
     } else {
-      visual.countDisplay = 0;
+      const elapsedInCountInMs = nowMs - visual.countInStartMs;
+      const beatIndex = Math.floor(elapsedInCountInMs / visual.beatDurationMs);
+      if (beatIndex >= 0 && beatIndex < visual.countInBeats) {
+        visual.countDisplay = visual.countInBeats - beatIndex;
+      } else {
+        visual.countDisplay = 0;
+      }
     }
     visual.progressRatio = 0;
     visual.remainingSec = visual.trackDurationSec;
@@ -1422,7 +1783,7 @@ function getTrackRenderStatus(track) {
     const queued = appState.renderProgress.queuedTrackIds || [];
     const doneIds = appState.renderProgress.doneTrackIds || [];
     if (queued.includes(track.id) && !doneIds.includes(track.id) && appState.renderProgress.currentTrackId !== track.id) {
-      return { label: "QUEUED", className: "render-chip-queued" };
+      return { label: "QUEUED", className: "render-chip-error" };
     }
   }
 
@@ -1437,12 +1798,12 @@ function getTrackRenderStatus(track) {
       return { label: "RENDERED OK", className: "render-chip-ok" };
     }
     if (rendered?.ready && validation?.ok === false) {
-      return { label: "RENDER WARN", className: "render-chip-warn" };
+      return { label: "RENDER WARN", className: "render-chip-error" };
     }
     if (rendered?.fallbackMode === "live") {
-      return { label: "LIVE FALLBACK", className: "render-chip-warn" };
+      return { label: "LIVE FALLBACK", className: "render-chip-error" };
     }
-    return { label: "NEEDS RENDER", className: "render-chip-pending" };
+    return { label: "NEEDS RENDER", className: "render-chip-error" };
   }
 
   const rendered = track.type === "built" ? track.built?.rendered : track.loop?.rendered;
@@ -1453,24 +1814,24 @@ function getTrackRenderStatus(track) {
       return { label: "LOOP READY", className: "render-chip-ok" };
     }
     if (rendered?.ready && validation?.ok === false) {
-      return { label: "LOOP WARN", className: "render-chip-warn" };
+      return { label: "LOOP WARN", className: "render-chip-error" };
     }
     if (rendered?.fallbackMode === "live") {
-      return { label: "LOOP LIVE", className: "render-chip-warn" };
+      return { label: "LOOP LIVE", className: "render-chip-error" };
     }
-    return { label: "NEEDS RENDER", className: "render-chip-pending" };
+    return { label: "NEEDS RENDER", className: "render-chip-error" };
   }
 
   if (rendered?.ready && validation?.ok !== false) {
     return { label: "RENDERED OK", className: "render-chip-ok" };
   }
   if (rendered?.ready && validation?.ok === false) {
-    return { label: "RENDER WARN", className: "render-chip-warn" };
+    return { label: "RENDER WARN", className: "render-chip-error" };
   }
   if (rendered?.fallbackMode === "live") {
-    return { label: "LIVE FALLBACK", className: "render-chip-warn" };
+    return { label: "LIVE FALLBACK", className: "render-chip-error" };
   }
-  return { label: "NEEDS RENDER", className: "render-chip-pending" };
+  return { label: "NEEDS RENDER", className: "render-chip-error" };
 }
 
 function beginTrackDrag(event, row, index) {
@@ -4617,10 +4978,13 @@ function resumePlaybackVisual() {
   visual.countInEndMs += deltaMs;
   visual.trackStartMs += deltaMs;
   visual.trackEndMs += deltaMs;
+  if (Array.isArray(visual.countInBeatWallMs) && visual.countInBeatWallMs.length) {
+    visual.countInBeatWallMs = visual.countInBeatWallMs.map((value) => value + deltaMs);
+  }
   visual.paused = false;
   visual.pausedAtMs = 0;
   tickPlaybackVisual();
-  visual.timerId = window.setInterval(tickPlaybackVisual, 50);
+  queuePlaybackVisualTick();
 }
 
 function onPauseCurrentTrack() {
@@ -4827,11 +5191,31 @@ async function playMasterTrack(track, sessionId) {
     const builtInClickBuffers = await loadBuiltInSampleBuffersForContext(countInContext, [countInSample]);
     const countInResolvedBuffer = builtInClickBuffers.get(countInSample) || null;
 
+    await runCountInSyncPreflight(countInWindowEnabled);
+
     const beatDuration = 60 / (Number(countInConfig.bpm) || 120);
     const beatTotal = countInClickEnabled ? (Number(countInConfig.beats) || 4) : 0;
-    const timelineStartAt = countInContext.currentTime + (PLAY_SYNC_PREP_MS / 1000);
-    const firstBeatAt = countInClickEnabled ? timelineStartAt + (COUNT_IN_PREROLL_MS / 1000) : null;
+    const beatDurationMs = beatDuration * 1000;
+    let timelineStartAt = countInContext.currentTime + (PLAY_SYNC_PREP_MS / 1000);
+    let firstBeatAt = countInClickEnabled ? timelineStartAt + (COUNT_IN_PREROLL_MS / 1000) : null;
     const countInClock = makeContextClock(countInContext);
+    let countInBeatWallMs = buildCountInBeatWallTimes(
+      firstBeatAt !== null ? expectedWallTimeMs(countInClock, firstBeatAt) : null,
+      beatTotal,
+      beatDurationMs
+    );
+    if (countInClickEnabled && beatTotal > 0 && !isCountInScheduleReady(countInBeatWallMs, beatDurationMs)) {
+      timelineStartAt = Math.max(
+        timelineStartAt,
+        countInContext.currentTime + (COUNT_IN_SYNC_MIN_HEADROOM_MS / 1000)
+      );
+      firstBeatAt = timelineStartAt + (COUNT_IN_PREROLL_MS / 1000);
+      countInBeatWallMs = buildCountInBeatWallTimes(
+        expectedWallTimeMs(countInClock, firstBeatAt),
+        beatTotal,
+        beatDurationMs
+      );
+    }
 
     if (countInClickEnabled && firstBeatAt !== null) {
       for (let beat = 0; beat < beatTotal; beat += 1) {
@@ -4908,7 +5292,8 @@ async function playMasterTrack(track, sessionId) {
       countInStartWallMs: countInDurationSec > 0
         ? expectedWallTimeMs(countInClock, countInClickEnabled && firstBeatAt !== null ? firstBeatAt : timelineStartAt)
         : null,
-      trackStartWallMs: expectedWallTimeMs(countInClock, countInEndsAt)
+      trackStartWallMs: expectedWallTimeMs(countInClock, countInEndsAt),
+      countInBeatWallMs
     });
     playbackVisualStarted = true;
     await waitMs(Math.max(0, (countInEndsAt - countInContext.currentTime) * 1000));
@@ -5145,6 +5530,23 @@ async function playMasterTrackRendered(track, sessionId) {
     return false;
   }
 
+  const countInConfig = track.masterCountIn || {};
+  const countInClickEnabled = !!countInConfig.clickEnabled;
+  const countInWindowEnabled = countInClickEnabled
+    || !!countInConfig.backing1?.enabled
+    || !!countInConfig.backing2?.enabled;
+  const countInBeats = countInClickEnabled && countInWindowEnabled ? (Number(countInConfig.beats) || 4) : 0;
+  const countInBpm = Number(countInConfig.bpm) || 120;
+  const countInBeatDurationMs = 60000 / countInBpm;
+  const renderedCountInDurationSec = Number(rendered.countInDurationSec);
+  const countInDurationMs = countInWindowEnabled
+    ? (Number.isFinite(renderedCountInDurationSec)
+      ? Math.max(0, renderedCountInDurationSec * 1000)
+      : (countInBeats > 0 ? countInBeats * countInBeatDurationMs : 0))
+    : 0;
+
+  await runCountInSyncPreflight(countInWindowEnabled);
+
   await waitMs(PLAY_SYNC_PREP_MS);
   if (cancelled) {
     stop();
@@ -5180,27 +5582,16 @@ async function playMasterTrackRendered(track, sessionId) {
   const durationSec = Number(rendered.durationSec)
     || Number(track.lockedMeta?.lengthSec)
     || totalTrackSeconds(track);
-  const countInConfig = track.masterCountIn || {};
-  const countInClickEnabled = !!countInConfig.clickEnabled;
-  const countInWindowEnabled = countInClickEnabled
-    || !!countInConfig.backing1?.enabled
-    || !!countInConfig.backing2?.enabled;
-  const countInBeats = countInClickEnabled && countInWindowEnabled ? (Number(countInConfig.beats) || 4) : 0;
-  const countInBpm = Number(countInConfig.bpm) || 120;
-  const renderedCountInDurationSec = Number(rendered.countInDurationSec);
-  const countInDurationMs = countInWindowEnabled
-    ? (Number.isFinite(renderedCountInDurationSec)
-      ? Math.max(0, renderedCountInDurationSec * 1000)
-      : (countInBeats > 0 ? countInBeats * (60000 / countInBpm) : 0))
-    : 0;
 
   const playbackStartWallMs = performance.now();
+  const countInBeatWallMs = buildCountInBeatWallTimes(playbackStartWallMs, countInBeats, countInBeatDurationMs);
   startPlaybackVisual(track, sessionId, {
     countInBeats,
     countInBpm,
     trackDurationSec: durationSec,
     countInStartWallMs: countInDurationMs > 0 ? playbackStartWallMs : null,
-    trackStartWallMs: playbackStartWallMs + countInDurationMs
+    trackStartWallMs: playbackStartWallMs + countInDurationMs,
+    countInBeatWallMs: isCountInScheduleReady(countInBeatWallMs, countInBeatDurationMs, false) ? countInBeatWallMs : []
   });
 
   stopTimer = createPausableTimeout(() => {
@@ -5315,6 +5706,22 @@ async function playBuiltTrackRendered(track, sessionId) {
     return false;
   }
 
+  const durationSec = Number(rendered.durationSec) || totalTrackSeconds(track);
+  const built = normalizeBuiltTrack(track.built || {});
+  const countInWindowEnabled = isBuiltCountInWindowEnabled(built);
+  const countInClickEnabled = !!built.countIn.clickEnabled;
+  const countInBeats = countInClickEnabled && countInWindowEnabled ? (Number(built.countIn.beats) || 4) : 0;
+  const countInBpm = Number(built.countIn.bpm) || 120;
+  const countInBeatDurationMs = 60000 / countInBpm;
+  const renderedCountInDurationSec = Number(rendered.countInDurationSec);
+  const countInDurationMs = countInWindowEnabled
+    ? (Number.isFinite(renderedCountInDurationSec)
+      ? Math.max(0, renderedCountInDurationSec * 1000)
+      : (countInBeats > 0 ? countInBeats * countInBeatDurationMs : 0))
+    : 0;
+
+  await runCountInSyncPreflight(countInWindowEnabled);
+
   await waitMs(PLAY_SYNC_PREP_MS);
   if (cancelled) {
     stop();
@@ -5347,27 +5754,15 @@ async function playBuiltTrackRendered(track, sessionId) {
     return false;
   }
 
-  const durationSec = Number(rendered.durationSec) || totalTrackSeconds(track);
-  const built = normalizeBuiltTrack(track.built || {});
-  const countInWindowEnabled = isBuiltCountInWindowEnabled(built);
-  const countInClickEnabled = !!built.countIn.clickEnabled;
-  const countInBeats = countInClickEnabled && countInWindowEnabled ? (Number(built.countIn.beats) || 4) : 0;
-  const countInBpm = Number(built.countIn.bpm) || 120;
-  const renderedCountInDurationSec = Number(rendered.countInDurationSec);
-  const countInDurationMs = countInWindowEnabled
-    ? (Number.isFinite(renderedCountInDurationSec)
-      ? Math.max(0, renderedCountInDurationSec * 1000)
-      : (countInBeats > 0 ? COUNT_IN_PREROLL_MS + (countInBeats * (60000 / countInBpm)) : 0))
-    : 0;
   const playbackStartWallMs = performance.now();
+  const countInBeatWallMs = buildCountInBeatWallTimes(playbackStartWallMs, countInBeats, countInBeatDurationMs);
   startPlaybackVisual(track, sessionId, {
     countInBeats,
     countInBpm,
     trackDurationSec: totalTrackSeconds(track),
-    countInStartWallMs: countInDurationMs > 0
-      ? (countInClickEnabled && countInBeats > 0 ? playbackStartWallMs + COUNT_IN_PREROLL_MS : playbackStartWallMs)
-      : null,
-    trackStartWallMs: playbackStartWallMs + countInDurationMs
+    countInStartWallMs: countInDurationMs > 0 ? playbackStartWallMs : null,
+    trackStartWallMs: playbackStartWallMs + countInDurationMs,
+    countInBeatWallMs: isCountInScheduleReady(countInBeatWallMs, countInBeatDurationMs, false) ? countInBeatWallMs : []
   });
 
   stopTimer = createPausableTimeout(() => {
@@ -5466,16 +5861,36 @@ async function playBuiltTrackLive(track, sessionId) {
     ? Math.max(clickCountInDurationSec, backingCountInDurationSec)
     : 0;
 
-  const timelineStartAt = context.currentTime + (PLAY_SYNC_PREP_MS / 1000);
-  const sectionStartAt = timelineStartAt + countInDurationSec;
+  await runCountInSyncPreflight(countInWindowEnabled);
+
+  let timelineStartAt = context.currentTime + (PLAY_SYNC_PREP_MS / 1000);
   const contextClock = makeContextClock(context);
-  const firstCountBeatAt = countInClickEnabled && countInBeats > 0
+  let firstCountBeatAt = countInClickEnabled && countInBeats > 0
     ? timelineStartAt + (COUNT_IN_PREROLL_MS / 1000)
     : null;
+  const countBeatDuration = 60 / countInBpm;
+  const countBeatDurationMs = countBeatDuration * 1000;
+  let countInBeatWallMs = buildCountInBeatWallTimes(
+    firstCountBeatAt !== null ? expectedWallTimeMs(contextClock, firstCountBeatAt) : null,
+    countInBeats,
+    countBeatDurationMs
+  );
+  if (countInClickEnabled && countInBeats > 0 && !isCountInScheduleReady(countInBeatWallMs, countBeatDurationMs)) {
+    timelineStartAt = Math.max(
+      timelineStartAt,
+      context.currentTime + (COUNT_IN_SYNC_MIN_HEADROOM_MS / 1000)
+    );
+    firstCountBeatAt = timelineStartAt + (COUNT_IN_PREROLL_MS / 1000);
+    countInBeatWallMs = buildCountInBeatWallTimes(
+      expectedWallTimeMs(contextClock, firstCountBeatAt),
+      countInBeats,
+      countBeatDurationMs
+    );
+  }
   const countInBackingStartAt = countInClickEnabled ? (firstCountBeatAt || timelineStartAt) : timelineStartAt;
+  const sectionStartAtAdjusted = timelineStartAt + countInDurationSec;
 
   if (countInClickEnabled && countInWindowEnabled) {
-    const countBeatDuration = 60 / countInBpm;
     for (let beat = 0; beat < countInBeats; beat += 1) {
       const when = firstCountBeatAt + beat * countBeatDuration;
       scheduleClickCueAt(
@@ -5525,8 +5940,17 @@ async function playBuiltTrackLive(track, sessionId) {
         ? expectedWallTimeMs(contextClock, firstCountBeatAt)
         : expectedWallTimeMs(contextClock, timelineStartAt))
       : null,
-    trackStartWallMs: expectedWallTimeMs(contextClock, sectionStartAt)
+    trackStartWallMs: expectedWallTimeMs(contextClock, sectionStartAtAdjusted),
+    countInBeatWallMs
   });
+
+  const shouldYieldForCountInVisual = countInDurationSec > 0;
+  let scheduleSliceStartMs = performance.now();
+  if (shouldYieldForCountInVisual) {
+    // Let the first count-in number render before heavy scheduling work.
+    await waitForNextPaint();
+    scheduleSliceStartMs = performance.now();
+  }
 
   let sectionStartSec = 0;
   for (const section of sections) {
@@ -5536,7 +5960,7 @@ async function playBuiltTrackLive(track, sessionId) {
     const beatDuration = 60 / sectionBpm;
 
     for (let beat = 0; beat < sectionBeats; beat += 1) {
-      const when = sectionStartAt + sectionStartSec + beat * beatDuration;
+      const when = sectionStartAtAdjusted + sectionStartSec + beat * beatDuration;
       const strongBeat = !!built.mainClick.strongBeatEnabled && beat % beatsPerBar === 0;
       if (strongBeat) {
         scheduleClickCueAt(
@@ -5582,7 +6006,7 @@ async function playBuiltTrackLive(track, sessionId) {
       if (!laneFile) {
         continue;
       }
-      const when = sectionStartAt + sectionStartSec;
+      const when = sectionStartAtAdjusted + sectionStartSec;
       const delayMs = Math.max(0, (when - context.currentTime) * 1000);
       const timer = setTimeout(() => {
         if (cancelled) {
@@ -5601,6 +6025,12 @@ async function playBuiltTrackLive(track, sessionId) {
         activeAudios.push({ audio, url });
       }, delayMs);
       timers.push(timer);
+    }
+
+    if (shouldYieldForCountInVisual && (performance.now() - scheduleSliceStartMs) > 12) {
+      // Prevent long sync blocks that can freeze count-in visuals.
+      await waitForNextPaint();
+      scheduleSliceStartMs = performance.now();
     }
 
     sectionStartSec += sectionBeats * beatDuration;
@@ -5774,6 +6204,8 @@ async function playLoopTrackRendered(track, sessionId) {
     const countInSample = loopConfig.countIn.clickSample || "beep";
     const builtInBuffers = await loadBuiltInSampleBuffersForContext(context, [countInSample]);
 
+    await runCountInSyncPreflight(countInWindowEnabled);
+
     const timelineStartAt = context.currentTime + (PLAY_SYNC_PREP_MS / 1000);
     const firstCountBeatAt = countInClickEnabled && countInBeats > 0
       ? timelineStartAt + (COUNT_IN_PREROLL_MS / 1000)
@@ -5848,6 +6280,7 @@ async function playLoopTrackRendered(track, sessionId) {
     const countInDurationSec = countInWindowEnabled
       ? Math.max(clickCountInDurationSec, backingCountInDurationSec)
       : 0;
+
     const loopStartAt = timelineStartAt + countInDurationSec;
 
     source = context.createBufferSource();
@@ -5895,6 +6328,7 @@ async function playLoopTrackLive(track, sessionId) {
   const activeAudios = [];
   const lookaheadSec = 0.2;
   const scheduleIntervalMs = 60;
+  await runCountInSyncPreflight(countInWindowEnabled);
   const contextClock = makeContextClock(context);
   const timelineStartAt = context.currentTime + (PLAY_SYNC_PREP_MS / 1000);
   const firstCountBeatAt = countInClickEnabled && countInBeats > 0
@@ -7188,6 +7622,66 @@ function waitMs(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      resolve();
+    });
+  });
+}
+
+async function runCountInSyncPreflight(enabled) {
+  if (!enabled) {
+    return;
+  }
+  const prepStartMs = performance.now();
+  await waitForNextPaint();
+  await waitForNextPaint();
+  const elapsedMs = performance.now() - prepStartMs;
+  const remainingMs = Math.max(0, COUNT_IN_SYNC_PREP_MS - elapsedMs);
+  if (remainingMs > 0) {
+    await waitMs(remainingMs);
+  }
+}
+
+function buildCountInBeatWallTimes(firstBeatWallMs, beatTotal, beatDurationMs) {
+  if (!Number.isFinite(firstBeatWallMs) || firstBeatWallMs <= 0 || beatTotal <= 0 || beatDurationMs <= 0) {
+    return [];
+  }
+
+  const beats = [];
+  for (let beat = 0; beat < beatTotal; beat += 1) {
+    beats.push(firstBeatWallMs + beat * beatDurationMs);
+  }
+  return beats;
+}
+
+function isCountInScheduleReady(beatWallMs, beatDurationMs, requireHeadroom = true) {
+  if (!Array.isArray(beatWallMs) || !beatWallMs.length) {
+    return true;
+  }
+
+  if (requireHeadroom) {
+    const nowMs = performance.now();
+    if ((beatWallMs[0] - nowMs) < COUNT_IN_SYNC_MIN_HEADROOM_MS) {
+      return false;
+    }
+  }
+
+  if (!Number.isFinite(beatDurationMs) || beatDurationMs <= 0) {
+    return false;
+  }
+
+  for (let i = 1; i < beatWallMs.length; i += 1) {
+    const intervalMs = beatWallMs[i] - beatWallMs[i - 1];
+    if (Math.abs(intervalMs - beatDurationMs) > COUNT_IN_SYNC_INTERVAL_TOLERANCE_MS) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 async function decodeFileToAudioBuffer(context, file) {
