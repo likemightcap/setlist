@@ -11,11 +11,22 @@
 <body>
   <div class="app-shell">
     <header class="set-header">
-      <h1 id="setNameLabel">UNTITLED SET</h1>
-      <div class="set-header-actions">
-        <button id="installAppBtn" class="install-app-btn" hidden>Download App</button>
+      <div class="set-title-group">
         <button id="renameSetBtn" class="icon-btn set-rename-btn" aria-label="Rename set">
           <img src="assets/edit-icon.png" alt="Rename set">
+        </button>
+        <h1 id="setNameLabel">UNTITLED SET</h1>
+      </div>
+      <div class="set-header-actions">
+        <button id="installAppBtn" class="install-app-btn" hidden>Download App</button>
+        <button id="newSetBtn" class="icon-btn top-action-btn" aria-label="New set">
+          <img src="assets/add-icon.png" alt="New set">
+        </button>
+        <button id="loadSetBtn" class="icon-btn top-action-btn" aria-label="Load set">
+          <img src="assets/load-icon.png" alt="Load set">
+        </button>
+        <button id="saveSetBtn" class="icon-btn top-action-btn" aria-label="Save set">
+          <img src="assets/save-icon.png" alt="Save set">
         </button>
       </div>
     </header>
@@ -30,12 +41,10 @@
     </main>
 
     <div class="transport-bar" aria-label="Playback controls">
-      <button id="transportPlayBtn" class="transport-btn">PLAY</button>
-      <button id="transportStopBtn" class="transport-btn">STOP</button>
-      <button id="transportContinuousBtn" class="transport-btn icon-only" aria-label="Toggle continuous play" aria-pressed="false">
+      <button id="transportContinuousBtn" class="transport-btn icon-only compact-transport-btn" aria-label="Toggle continuous play" aria-pressed="false">
         <img src="assets/cont-play.png" alt="Continuous play">
       </button>
-      <button id="renderAllBtn" class="transport-btn icon-only" aria-label="Render all tracks">
+      <button id="renderAllBtn" class="transport-btn icon-only compact-transport-btn" aria-label="Render all tracks">
         <img src="assets/render-icon.png" alt="Render all">
       </button>
     </div>
@@ -43,9 +52,8 @@
     <div id="renderQueueBanner" class="render-queue-banner" hidden aria-live="polite"></div>
 
     <footer class="bottom-actions">
-      <button id="newSetBtn" class="action-btn neutral">NEW SET</button>
-      <button id="loadSetBtn" class="action-btn load">LOAD SET</button>
-      <button id="saveSetBtn" class="action-btn save">SAVE SET</button>
+      <button id="transportPlayBtn" class="transport-btn bottom-transport-btn">PLAY</button>
+      <button id="transportStopBtn" class="transport-btn bottom-transport-btn">STOP</button>
     </footer>
   </div>
 
