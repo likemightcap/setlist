@@ -204,7 +204,8 @@ const appState = {
     suppressClickUntil: 0
   },
   sectionDisplay: {
-    previousTrackId: ""
+    previousTrackId: "",
+    expandedByTrackId: {}
   }
 };
 
@@ -1020,11 +1021,16 @@ function isCurrentSetRenderedFully() {
 
 function renderTrackRows() {
   const rows = appState.currentSet.tracks.map((track, index) => {
+    const hasSectionPanel = hasInlineSectionPanel(track);
+    const sectionsExpanded = hasSectionPanel && isTrackSectionsExpanded(track.id);
     const row = document.createElement("article");
     row.className = "track-row";
     row.classList.add(`track-type-${track.type}`);
     if (index === appState.selectedTrackIndex) {
       row.classList.add("selected");
+      if (sectionsExpanded) {
+        row.classList.add("sections-open");
+      }
     }
     row.dataset.trackId = track.id;
     row.dataset.index = String(index);
@@ -1049,6 +1055,16 @@ function renderTrackRows() {
         <span></span>
         <span></span>
       </div>
+      ${hasSectionPanel ? `
+        <button
+          class="track-sections-toggle ${sectionsExpanded ? "is-open" : ""}"
+          aria-label="${sectionsExpanded ? "Collapse sections" : "Show sections"}"
+          aria-expanded="${sectionsExpanded ? "true" : "false"}"
+          title="${sectionsExpanded ? "Collapse sections" : "Show sections"}"
+        >
+          <span class="track-sections-toggle-glyph" aria-hidden="true">⌄</span>
+        </button>
+      ` : ""}
       <div class="track-main">
         <div class="track-meta-row">
           <span class="track-index-pill">${index + 1}</span>
@@ -1082,6 +1098,9 @@ function renderTrackRows() {
       if (event.target.closest(".track-action-btn")) {
         return;
       }
+      if (event.target.closest(".track-sections-toggle")) {
+        return;
+      }
       selectTrack(index);
     });
 
@@ -1095,6 +1114,17 @@ function renderTrackRows() {
       confirmDeleteTrack(track.id);
     });
 
+    const sectionToggleBtn = row.querySelector(".track-sections-toggle");
+    if (sectionToggleBtn) {
+      sectionToggleBtn.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+      sectionToggleBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleTrackSections(index);
+      });
+    }
+
     row.addEventListener("pointerdown", (event) => {
       beginTrackDrag(event, row, index);
     });
@@ -1103,7 +1133,9 @@ function renderTrackRows() {
   });
 
   const selectedTrack = appState.currentSet.tracks[appState.selectedTrackIndex] || null;
-  const inlineSections = buildSelectedTrackSectionsInline(selectedTrack);
+  const inlineSections = hasInlineSectionPanel(selectedTrack) && isTrackSectionsExpanded(selectedTrack.id)
+    ? buildSelectedTrackSectionsInline(selectedTrack)
+    : null;
   if (!inlineSections) {
     appState.sectionDisplay.previousTrackId = "";
   }
@@ -1120,6 +1152,74 @@ function renderTrackRows() {
   } else {
     els.trackList.replaceChildren(...trackChildren);
   }
+}
+
+function hasInlineSectionPanel(track) {
+  return !!track && track.type === "built" && (track.built?.sections || []).length > 0;
+}
+
+function isTrackSectionsExpanded(trackId) {
+  if (!trackId) {
+    return false;
+  }
+  return !!appState.sectionDisplay.expandedByTrackId[trackId];
+}
+
+function setTrackSectionsExpanded(trackId, expanded) {
+  if (!trackId) {
+    return;
+  }
+  if (expanded) {
+    appState.sectionDisplay.expandedByTrackId[trackId] = true;
+    return;
+  }
+  delete appState.sectionDisplay.expandedByTrackId[trackId];
+}
+
+function toggleTrackSections(index) {
+  if (index < 0 || index >= appState.currentSet.tracks.length) {
+    return;
+  }
+
+  const track = appState.currentSet.tracks[index];
+  if (!hasInlineSectionPanel(track)) {
+    selectTrack(index);
+    return;
+  }
+
+  if (appState.selectedTrackIndex !== index) {
+    appState.selectedTrackIndex = index;
+    appState.sectionDisplay.previousTrackId = "";
+    setTrackSectionsExpanded(track.id, true);
+    render();
+    return;
+  }
+
+  const expanded = isTrackSectionsExpanded(track.id);
+  if (!expanded) {
+    appState.sectionDisplay.previousTrackId = "";
+    setTrackSectionsExpanded(track.id, true);
+    render();
+    return;
+  }
+
+  setTrackSectionsExpanded(track.id, false);
+  appState.sectionDisplay.previousTrackId = "";
+
+  const panel = els.trackList?.querySelector(`.selected-track-sections-inline[data-track-id="${track.id}"]`);
+  if (!panel) {
+    render();
+    return;
+  }
+
+  panel.classList.remove("is-entering");
+  panel.classList.add("is-collapsing");
+  window.setTimeout(() => {
+    const selectedTrack = appState.currentSet.tracks[appState.selectedTrackIndex] || null;
+    if (!isTrackSectionsExpanded(track.id) && selectedTrack?.id === track.id) {
+      renderTrackRows();
+    }
+  }, 150);
 }
 
 function getTrackPlaybackState(track, index, baseDurationSec) {
